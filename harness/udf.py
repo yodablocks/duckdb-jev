@@ -25,6 +25,20 @@ Note on jev_score scale: Score is a probability-weighted mean over level
 INDICES, so the range is 0..len(rubric)-1, not 0..1. Scores from different
 rubrics are not comparable. ORDER BY across mixed rubrics is meaningless.
 
+Known limitation, stated rather than hidden: each UDF call issues one
+request for one row. A SELECT with three semantic columns over 100 rows
+is 300 requests where batching would be 100, and the state tokens are
+paid for once per question instead of once per row. This is the exact
+per-row pattern the build spec flags as wasting Jev's architecture, and
+it is why Phase 3 exists.
+
+It is left as-is for Phase 2 deliberately. DuckDB scalar UDFs are called
+per row, so batching requires either a vectorised UDF (`type="arrow"`)
+or a two-pass pattern: pre-warm the cache with one batched pass, then let
+the per-row UDFs read cached answers for free. The cache makes the second
+approach work today, and `test_udf.py` reports the request count so the
+cost is visible instead of surprising.
+
 Requires duckdb, which is NOT needed for Phase 1:  pip install duckdb
 """
 
@@ -34,6 +48,37 @@ import json
 from pathlib import Path
 
 from client import JevClient, choice as q_choice, noul as q_noul, score as q_score
+
+
+# Measured against the live API, not assumed.
+#
+# The build spec's signatures are jev_score(text, rubric[]) and
+# jev_choice(text, options[]): no question parameter, unlike jev_bool.
+# That reads fine and does not work. With a generic instruction, a rubric
+# phrased around "the topic" never says WHICH topic, so Jev scores almost
+# everything near the top of the scale:
+#
+#   "NASA confirmed the orbiter completed its lunar transfer burn."  2.76
+#   "Selling my road bike, $400, barely used, local pickup only."    2.86
+#
+# The bike outranks the orbiter. ORDER BY over that is noise. Naming the
+# judgment separates them completely:
+#
+#   instructions="How directly is this message about spaceflight?"
+#   -> orbiter 3.0, bike 0.0
+#
+# So the two-argument forms are kept for spec compatibility but are a
+# trap, and the *_q variants take the question explicitly. Put the
+# judgment in the question; the rubric only describes the levels.
+DEFAULT_SCORE_QUESTION = (
+    "Rate this against the criteria. NOTE: no judgment was specified, so "
+    "this generic instruction scores most inputs alike. Use jev_score_q "
+    "or jev_score_val_q and state what to judge."
+)
+DEFAULT_CHOICE_QUESTION = (
+    "Which option best describes this? NOTE: no judgment was specified. "
+    "Use jev_choice_q and state what to judge."
+)
 
 
 def _gate_passed(results: Path) -> tuple[bool, str]:
@@ -78,13 +123,11 @@ def register(con, client: JevClient, results_dir: Path | None = None,
         p = r["answers"]["q"]["noul"]
         return {"value": p >= 0.5, "prob": p}
 
-    def jev_choice(text: str, options: list[str]) -> dict:
+    def _choice(text: str, options: list[str], question: str) -> dict:
         if text is None or not options:
             return {"value": None, "prob": None, "confidence": None}
         r = client.ask(
-            text,
-            {"q": q_choice("Which option best describes this?",
-                           {o: None for o in options})},
+            text, {"q": q_choice(question, {o: None for o in options})}
         )
         a = r["answers"]["q"]
         return {
@@ -93,22 +136,37 @@ def register(con, client: JevClient, results_dir: Path | None = None,
             "confidence": a.get("confidence"),
         }
 
-    def jev_score(text: str, rubric: list[str]) -> dict:
+    def jev_choice(text: str, options: list[str]) -> dict:
+        return _choice(text, options, DEFAULT_CHOICE_QUESTION)
+
+    def jev_choice_q(text: str, options: list[str], question: str) -> dict:
+        return _choice(text, options, question)
+
+    def _score(text: str, rubric: list[str], question: str) -> dict:
         if text is None or not rubric:
             return {"score": None, "confidence": None}
-        r = client.ask(
-            text,
-            {"q": q_score("Rate this against the criteria.", list(rubric))},
-        )
+        r = client.ask(text, {"q": q_score(question, list(rubric))})
         a = r["answers"]["q"]
         return {"score": a["score"], "confidence": a.get("confidence")}
+
+    def jev_score(text: str, rubric: list[str]) -> dict:
+        return _score(text, rubric, DEFAULT_SCORE_QUESTION)
+
+    def jev_score_q(text: str, rubric: list[str], question: str) -> dict:
+        return _score(text, rubric, question)
 
     def jev_score_val(text: str, rubric: list[str]) -> float | None:
         """Bare score for the common ORDER BY case.
 
         Scale is 0..len(rubric)-1. Do not mix rubrics in one sort.
         """
-        return jev_score(text, rubric)["score"]
+        return _score(text, rubric, DEFAULT_SCORE_QUESTION)["score"]
+
+    def jev_score_val_q(
+        text: str, rubric: list[str], question: str
+    ) -> float | None:
+        """The form to actually use for ORDER BY. See DEFAULT_SCORE_QUESTION."""
+        return _score(text, rubric, question)["score"]
 
     con.create_function(
         "jev_bool", jev_bool, ["VARCHAR", "VARCHAR"],
@@ -124,5 +182,20 @@ def register(con, client: JevClient, results_dir: Path | None = None,
     )
     con.create_function(
         "jev_score_val", jev_score_val, ["VARCHAR", "VARCHAR[]"], "DOUBLE",
+    )
+    # The question-bearing variants. These are the ones to use: see the
+    # DEFAULT_SCORE_QUESTION note for why the two-argument forms score
+    # almost everything alike.
+    con.create_function(
+        "jev_choice_q", jev_choice_q, ["VARCHAR", "VARCHAR[]", "VARCHAR"],
+        "STRUCT(value VARCHAR, prob DOUBLE, confidence DOUBLE)",
+    )
+    con.create_function(
+        "jev_score_q", jev_score_q, ["VARCHAR", "VARCHAR[]", "VARCHAR"],
+        "STRUCT(score DOUBLE, confidence DOUBLE)",
+    )
+    con.create_function(
+        "jev_score_val_q", jev_score_val_q,
+        ["VARCHAR", "VARCHAR[]", "VARCHAR"], "DOUBLE",
     )
     return con

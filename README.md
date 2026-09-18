@@ -3,8 +3,10 @@
 DuckDB scalar functions over TypeSafe AI's Jev model, so unstructured text
 columns can be filtered and sorted like numeric ones.
 
-**Status (2026-09-18): Phase 1 complete. `jev-1.13.0` passes all six gate
-conditions. Phase 2 is unblocked.** See [Results](#results).
+**Status (2026-09-18): Phases 1 and 2 complete.** `jev-1.13.0` passes all
+six calibration gate conditions, and the SQL functions run against a real
+DuckDB connection with semantic `ORDER BY` demonstrated end to end. See
+[Results](#results).
 
 Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row).
 
@@ -344,12 +346,38 @@ from usage we measure ourselves rather than from the published figures.
 
 ## SQL surface (Phase 2)
 
+Verified against DuckDB 1.5.5 and the live API by `harness/test_udf.py`.
+
 ```
-jev_bool(text, question)      -> STRUCT(value BOOLEAN, prob DOUBLE)
-jev_choice(text, options[])   -> STRUCT(value VARCHAR, prob DOUBLE, confidence DOUBLE)
-jev_score(text, rubric[])     -> STRUCT(score DOUBLE, confidence DOUBLE)
-jev_score_val(text, rubric[]) -> DOUBLE
+jev_bool(text, question)                 -> STRUCT(value BOOLEAN, prob DOUBLE)
+jev_choice_q(text, options[], question)   -> STRUCT(value VARCHAR, prob DOUBLE, confidence DOUBLE)
+jev_score_q(text, rubric[], question)     -> STRUCT(score DOUBLE, confidence DOUBLE)
+jev_score_val_q(text, rubric[], question) -> DOUBLE
 ```
+
+### Always pass the question
+
+The build spec specified `jev_score(text, rubric[])` and
+`jev_choice(text, options[])` with no question parameter, unlike
+`jev_bool`. That reads fine and does not work.
+
+With no question, a rubric phrased around "the topic" never says *which*
+topic, and Jev scores nearly everything alike. Measured against the live
+API:
+
+| Text | No question | `"How directly is this about spaceflight?"` |
+|---|---|---|
+| "NASA confirmed the orbiter completed its lunar transfer burn." | 2.76 | **3.00** |
+| "Selling my road bike, $400, barely used, local pickup only." | 2.86 | **0.00** |
+
+The bike outranks the orbiter. Over four rows the question-free scores
+span **0.20** of a 3-point scale; with the question they span the full
+**3.00**. `ORDER BY` over the first is noise, and nothing in SQL warns
+you.
+
+The two-argument forms are still registered for spec compatibility, and
+their default instruction says so in its own text. Use the `_q` variants.
+Put the judgment in the question; the rubric only describes the levels.
 
 Structs, not bare values: returning NULL on low confidence poisons
 `ORDER BY` unpredictably (DuckDB sorts NULLs last regardless of direction,
