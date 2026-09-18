@@ -14,15 +14,15 @@
     "n": 360,
     "n_calibration": 353,
     "n_excluded_ambiguous": 7,
-    "brier": 0.05238441926345609,
+    "brier": 0.052384419263456085,
     "decomposition": {
       "reliability": 0.007235996000708765,
       "resolution": 0.18198450762608082,
       "uncertainty": 0.22703015031017018,
-      "brier": 0.05238441926345609
+      "brier": 0.052384419263456085
     },
     "ece": {
-      "ece": 0.04269121813031159,
+      "ece": 0.04529745042492916,
       "mce": 0.1262857142857143,
       "bins": [
         {
@@ -48,10 +48,10 @@
         {
           "n": 36,
           "mean_pred": 0.010000000000000002,
-          "observed": 0.05555555555555555,
-          "gap": 0.04555555555555555,
-          "ci_low": 0.015369663767066846,
-          "ci_high": 0.18144974107611211,
+          "observed": 0.08333333333333333,
+          "gap": 0.07333333333333333,
+          "ci_low": 0.0287480892712918,
+          "ci_high": 0.21827010276918848,
           "p_min": 0.01,
           "p_max": 0.01
         },
@@ -68,10 +68,10 @@
         {
           "n": 35,
           "mean_pred": 0.013142857142857145,
-          "observed": 0.02857142857142857,
-          "gap": 0.015428571428571425,
-          "ci_low": 0.005061361365853362,
-          "ci_high": 0.1453340909327131,
+          "observed": 0.0,
+          "gap": 0.013142857142857145,
+          "ci_low": 0.0,
+          "ci_high": 0.09890426758938868,
           "p_min": 0.01,
           "p_max": 0.02
         },
@@ -131,7 +131,7 @@
       "binning": "adaptive"
     },
     "ece_fixed_bins": 0.045410764872521256,
-    "ece_all_rows_incl_ambiguous": 0.03858333333333328,
+    "ece_all_rows_incl_ambiguous": 0.04036111111111106,
     "ranking": {
       "spearman": 0.7952490927665361,
       "kendall_tau": 0.7033659529489352,
@@ -144,7 +144,7 @@
     "by_probe": {
       "space": {
         "n_calibration": 118,
-        "brier": 0.05566694915254237,
+        "brier": 0.055666949152542354,
         "ece": 0.06228813559322043,
         "ranking": {
           "spearman": 0.801829912628824,
@@ -158,7 +158,7 @@
       },
       "medical": {
         "n_calibration": 117,
-        "brier": 0.035110256410256405,
+        "brier": 0.03511025641025639,
         "ece": 0.029658119658119764,
         "ranking": {
           "spearman": 0.823025022126789,
@@ -172,7 +172,7 @@
       },
       "forsale": {
         "n_calibration": 118,
-        "brier": 0.06622966101694913,
+        "brier": 0.06622966101694915,
         "ece": 0.042457627118644134,
         "ranking": {
           "spearman": 0.7665741427886363,
@@ -188,9 +188,9 @@
     "by_stratum": {
       "positive": {
         "n": 123,
-        "mean_prob": 0.8172357723577236,
+        "mean_prob": 0.8172357723577237,
         "base_rate": 1.0,
-        "brier": 0.13066829268292682,
+        "brier": 0.13066829268292685,
         "prob_p10_p90": [
           0.11,
           0.99
@@ -198,9 +198,9 @@
       },
       "near_miss": {
         "n": 141,
-        "mean_prob": 0.040638297872340426,
+        "mean_prob": 0.04063829787234042,
         "base_rate": 0.0,
-        "brier": 0.01262482269503546,
+        "brier": 0.012624822695035459,
         "prob_p10_p90": [
           0.01,
           0.07
@@ -210,7 +210,7 @@
         "n": 89,
         "mean_prob": 0.023820224719101123,
         "base_rate": 0.0,
-        "brier": 0.007184269662921348,
+        "brier": 0.0071842696629213455,
         "prob_p10_p90": [
           0.0,
           0.02
@@ -230,12 +230,12 @@
   },
   "paraphrase_control": {
     "n": 360,
-    "mean_abs_diff": 0.015861111111111114,
+    "mean_abs_diff": 0.01586111111111111,
     "median_abs_diff": 0.0,
     "p95_abs_diff": 0.07050000000000017,
     "max_abs_diff": 0.5700000000000001,
     "note": "floor for wording sensitivity; compare against negation_invariant.mean_abs_violation before attributing asymmetry to negation specifically",
-    "negation_to_paraphrase_ratio": 1.014010507880911,
+    "negation_to_paraphrase_ratio": 1.0140105078809112,
     "by_probe": {
       "space": {
         "n": 120,
@@ -251,9 +251,9 @@
       },
       "forsale": {
         "n": 120,
-        "paraphrase_mean_abs_diff": 0.009416666666666667,
+        "paraphrase_mean_abs_diff": 0.009416666666666669,
         "negation_mean_abs_violation": 0.013916666666666676,
-        "ratio": 1.4778761061946912
+        "ratio": 1.477876106194691
       }
     }
   },
@@ -264,8 +264,8 @@
     "accuracy_all_rows": 0.875,
     "brier_on_confidence": 0.10201898016997166,
     "ece_on_confidence": {
-      "ece": 0.07679886685552409,
-      "mce": 0.20305555555555543,
+      "ece": 0.07691218130311615,
+      "mce": 0.2086111111111114,
       "bins": [
         {
           "n": 36,
@@ -290,20 +290,20 @@
         {
           "n": 36,
           "mean_pred": 0.9863888888888892,
-          "observed": 0.8055555555555556,
-          "gap": 0.18083333333333362,
-          "ci_low": 0.6497163793648479,
-          "ci_high": 0.9024702798054665,
+          "observed": 0.7777777777777778,
+          "gap": 0.2086111111111114,
+          "ci_low": 0.6191498017214091,
+          "ci_high": 0.882838070251604,
           "p_min": 0.98,
           "p_max": 0.99
         },
         {
           "n": 35,
           "mean_pred": 0.9994285714285716,
-          "observed": 0.9428571428571428,
-          "gap": 0.05657142857142872,
-          "ci_low": 0.8139261926062996,
-          "ci_high": 0.984187170385956,
+          "observed": 1.0,
+          "gap": 0.000571428571428445,
+          "ci_low": 0.9010957324106112,
+          "ci_high": 1.0,
           "p_min": 0.99,
           "p_max": 1.0
         },
@@ -320,26 +320,6 @@
         {
           "n": 35,
           "mean_pred": 1.0,
-          "observed": 0.9714285714285714,
-          "gap": 0.02857142857142858,
-          "ci_low": 0.8546659090672868,
-          "ci_high": 0.9949386386341466,
-          "p_min": 1.0,
-          "p_max": 1.0
-        },
-        {
-          "n": 35,
-          "mean_pred": 1.0,
-          "observed": 0.9428571428571428,
-          "gap": 0.05714285714285716,
-          "ci_low": 0.8139261926062996,
-          "ci_high": 0.984187170385956,
-          "p_min": 1.0,
-          "p_max": 1.0
-        },
-        {
-          "n": 35,
-          "mean_pred": 1.0,
           "observed": 0.9428571428571428,
           "gap": 0.05714285714285716,
           "ci_low": 0.8139261926062996,
@@ -360,10 +340,30 @@
         {
           "n": 35,
           "mean_pred": 1.0,
-          "observed": 0.9142857142857143,
-          "gap": 0.08571428571428574,
-          "ci_low": 0.7762040092883747,
-          "ci_high": 0.970418168994703,
+          "observed": 0.9714285714285714,
+          "gap": 0.02857142857142858,
+          "ci_low": 0.8546659090672868,
+          "ci_high": 0.9949386386341466,
+          "p_min": 1.0,
+          "p_max": 1.0
+        },
+        {
+          "n": 35,
+          "mean_pred": 1.0,
+          "observed": 0.8857142857142857,
+          "gap": 0.11428571428571432,
+          "ci_low": 0.7404820521187976,
+          "ci_high": 0.9546489414551025,
+          "p_min": 1.0,
+          "p_max": 1.0
+        },
+        {
+          "n": 35,
+          "mean_pred": 1.0,
+          "observed": 0.9428571428571428,
+          "gap": 0.05714285714285716,
+          "ci_low": 0.8139261926062996,
+          "ci_high": 0.984187170385956,
           "p_min": 1.0,
           "p_max": 1.0
         }
@@ -372,9 +372,9 @@
       "n_bins_used": 10,
       "binning": "adaptive"
     },
-    "ece_all_rows_incl_ambiguous": 0.07602777777777783,
+    "ece_all_rows_incl_ambiguous": 0.0763055555555556,
     "decomposition": {
-      "reliability": 0.007231116322750113,
+      "reliability": 0.007231116322750081,
       "resolution": 0.01312960894318594,
       "uncertainty": 0.1091092938712292,
       "brier": 0.10201898016997166
@@ -416,7 +416,7 @@
     "stratum_means": {
       "far": 0.07477777777777778,
       "near_miss": 0.2071428571428571,
-      "positive": 2.456747967479675
+      "positive": 2.4567479674796746
     },
     "stratum_monotonic": true,
     "rubric_ordinality": {
@@ -425,7 +425,7 @@
       "median_abs_mirror_error": 1.734723475976807e-17,
       "p95_abs_mirror_error": 0.10999999999999988,
       "mean_error_as_scale_fraction": 0.007435185185185188,
-      "correlation_with_mirror": 0.9993178491504161,
+      "correlation_with_mirror": 0.9993178491504164,
       "note": "reversed rubric should mirror: score_reversed ~= scale_max - score. Large error means the rubric is not ordinal to the model and any sort key built from it is noise."
     }
   },
@@ -444,6 +444,7 @@
     "cache_hits": 10,
     "input_tokens": 307464,
     "output_tokens": 51549,
-    "failed_rows": 0
+    "failed_rows": 0,
+    "reanalyzed_from_cache": true
   }
 }
