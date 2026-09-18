@@ -179,7 +179,7 @@ def _load_group(group: str) -> list[tuple[str, str]]:
     d = CORPUS_ROOT / group
     if not d.is_dir():
         raise FileNotFoundError(
-            f"Corpus not found at {d}. See tools/duckdb-jev/README.md for the "
+            f"Corpus not found at {d}. See README.md for the "
             "one-time download step."
         )
     out = []

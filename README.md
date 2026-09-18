@@ -8,15 +8,18 @@ conditions. Phase 2 is unblocked.** See [Results](#results).
 
 Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row).
 
-Jev launched 2026-09-15 and the only figure its vendor publishes is 67.8%
-agreement against averaged frontier judgments, self-run and unreproduced.
+Jev's SDK had its first public release on 2026-09-14 and the only figure
+its vendor publishes is 67.8% agreement against averaged frontier
+judgments, self-run and unreproduced.
 Agreement with other models is not calibration, so these are independent
 numbers rather than a reproduction of that one. Every method choice is in
 the repo and the run is reproducible, so disagree with the numbers by
 re-running rather than by taking anyone's word for it, including mine.
 
-**Reproduce:** `python3 harness/run_calibration.py` with a key. Responses
-are cached, so re-analysis is free and `--analyze-only` costs nothing.
+**Reproduce:** `python3 harness/run_calibration.py` with a key. At the
+published price of $0.042 per million input tokens (output is free), the
+full run costs about **$0.013**. Responses are cached locally, so once
+you have run it, `--analyze-only` recomputes everything for nothing.
 
 ## License
 
@@ -281,7 +284,7 @@ tar xzf /tmp/20news.tar.gz -C ~/scikit_learn_data/20news_home
 python3 harness/corpus.py .data/jev-calibration/corpus.jsonl
 
 # verify the harness with no API key and no spend
-python3 harness/test_metrics.py     # 26 known-answer metric tests
+python3 harness/test_metrics.py     # 28 known-answer metric tests
 python3 harness/test_pipeline.py    # end-to-end against a mock Jev server
 
 # then, with a key in .env (or exported):
@@ -301,8 +304,8 @@ cheaper to build now and the calibration run needs them anyway.
 - **Batching.** Every question for a row goes in one request. Jev answers
   independent questions against one state in a single parallel pass, so
   the calibration run issues 1 request per row instead of 4, and pays for
-  the state tokens once instead of four times. Verified by test: 60 rows →
-  60 requests, 4 questions each.
+  the state tokens once instead of six times. Verified by test: 60 rows →
+  60 requests, 6 questions each.
 - **Cache.** Content hash of `(model, state, questions)` → SQLite (WAL,
   thread-local connections). Verified: a replay run makes 0 requests and
   spends 0 tokens.
@@ -314,9 +317,12 @@ cheaper to build now and the calibration run needs them anyway.
   which will not improve. Partial failures are collected and surfaced, not
   silently nulled.
 
-Token usage is recorded per call from the first request, because rate
-limits and per-token pricing are undocumented: the Phase 3 cost ceiling
-can only be calibrated from usage we measure ourselves.
+Token usage is recorded per call from the first request. TypeSafe
+publishes pricing ($0.042 per million input tokens, output free) and rate
+limits (250k tokens/s, 1,200 requests/min, 64k context with 32k for state
+plus the longest question) at docs.typesafe.ai/models, but the limits are
+stated to adjust with demand, so the Phase 3 cost ceiling is calibrated
+from usage we measure ourselves rather than from the published figures.
 
 ## SQL surface (Phase 2)
 
