@@ -14,6 +14,7 @@ import numpy as np
 
 from metrics import (
     Gate,
+    _wilson,
     brier,
     brier_decomposition,
     ece,
@@ -32,6 +33,16 @@ def check(name, got, want, tol=1e-9):
     if not ok:
         failures.append(name)
 
+
+# --- Wilson interval ---------------------------------------------------
+# Must contain the observed rate at both edges for every bin size the
+# harness can produce. At phat = 1, n = 60 the float arithmetic used to
+# return an upper bound of 0.9999999999999999, and the reliability
+# diagram then handed matplotlib a negative error bar.
+_bad = [n for n in range(1, 400)
+        if _wilson(0, n)[0] > 0.0 or _wilson(n, n)[1] < 1.0]
+assert not _bad, f"Wilson interval excludes phat for n in {_bad[:5]}"
+print("PASS  wilson interval contains phat at 0/n and n/n for n < 400")
 
 # --- Brier -------------------------------------------------------------
 # Perfect predictions -> 0. Maximally wrong -> 1.

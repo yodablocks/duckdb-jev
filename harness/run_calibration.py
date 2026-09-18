@@ -518,8 +518,8 @@ def reliability_diagram(report, path: Path):
     )
     x = [b["mean_pred"] for b in bins]
     obs = [b["observed"] for b in bins]
-    lo = [o - b["ci_low"] for o, b in zip(obs, bins)]
-    hi = [b["ci_high"] - o for o, b in zip(obs, bins)]
+    lo = [max(0.0, o - b["ci_low"]) for o, b in zip(obs, bins)]
+    hi = [max(0.0, b["ci_high"] - o) for o, b in zip(obs, bins)]
 
     ax.plot([0, 1], [0, 1], "--", color="#999", lw=1, label="perfect calibration")
     ax.errorbar(x, obs, yerr=[lo, hi], fmt="o-", color="#2b6cb0",
