@@ -215,16 +215,15 @@ logged. `.env` is gitignored (and `test_pipeline.py` asserts that, so the
 protection cannot rot silently):
 
 ```sh
-cd tools/duckdb-jev
 cp .env.example .env
 $EDITOR .env          # TYPESAFE_AI_API_KEY=your-key-here
 ```
 
-The harness looks for `.env` in `tools/duckdb-jev/` and at the repo root,
-and accepts either `TYPESAFE_AI_API_KEY` or `TYPESAFE_API_KEY` (the build
-spec names the first, the published SDK page the second). An already
-exported shell variable always wins, so a stale `.env` cannot silently
-override a key you set deliberately.
+The harness looks for `.env` at the repo root and accepts either
+`TYPESAFE_AI_API_KEY` or `TYPESAFE_API_KEY` (the build spec names the
+first, the published SDK page the second). An already exported shell
+variable always wins, so a stale `.env` cannot silently override a key
+you set deliberately.
 
 `export TYPESAFE_AI_API_KEY=...` also works if you prefer not to have the
 key on disk.
@@ -237,7 +236,7 @@ curl -L -A "Mozilla/5.0" -o /tmp/20news.tar.gz \
 tar xzf /tmp/20news.tar.gz -C ~/scikit_learn_data/20news_home
 
 # build the corpus
-python3 harness/corpus.py ../../.data/jev-calibration/corpus.jsonl
+python3 harness/corpus.py .data/jev-calibration/corpus.jsonl
 
 # verify the harness with no API key and no spend
 python3 harness/test_metrics.py     # 26 known-answer metric tests
