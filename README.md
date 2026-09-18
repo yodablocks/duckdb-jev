@@ -16,10 +16,27 @@ numbers rather than a reproduction of that one. Every method choice is in
 the repo and the run is reproducible, so disagree with the numbers by
 re-running rather than by taking anyone's word for it, including mine.
 
-**Reproduce:** `python3 harness/run_calibration.py` with a key. At the
-published price of $0.042 per million input tokens (output is free), the
-full run costs about **$0.013**. Responses are cached locally, so once
-you have run it, `--analyze-only` recomputes everything for nothing.
+**Reproduce.** Three steps, only one of which costs anything:
+
+```sh
+# 1. corpus (free, ~14MB download, one time)
+mkdir -p ~/scikit_learn_data/20news_home
+curl -L -A "Mozilla/5.0" -o /tmp/20news.tar.gz \
+  http://qwone.com/~jason/20Newsgroups/20news-bydate.tar.gz
+tar xzf /tmp/20news.tar.gz -C ~/scikit_learn_data/20news_home
+python3 harness/corpus.py .data/jev-calibration/corpus.jsonl
+
+# 2. verify the harness (free, no API key needed)
+python3 harness/test_metrics.py     # 29 known-answer metric tests
+python3 harness/test_pipeline.py    # end-to-end vs a mock Jev server
+
+# 3. score against Jev (needs a key; costs about $0.013)
+python3 harness/run_calibration.py
+```
+
+`--analyze-only` recomputes the metrics from the local response cache for
+free, but only after step 3 has populated it: a fresh clone has no cache,
+because raw responses are gitignored.
 
 ## License
 
@@ -34,8 +51,8 @@ which are governed by TypeSafe AI's terms.
 | Primitive | Metric | Value | Gate |
 |---|---|---|---|
 | `jev_bool` | Brier | **0.0524** | |
-| | ECE (adaptive, 10 bins) | **0.0453** | ≤ 0.10 ✓ |
-| | ECE (fixed-width, 10 bins) | 0.0454 | |
+| | ECE (fixed-width, 10 bins) | **0.0454** | ≤ 0.10 ✓ |
+| | ECE (adaptive, 10 bins) | 0.0453 ±0.004 | |
 | | resolution | 0.1820 | > 0 ✓ |
 | | AUC | 0.9637 | |
 | | inversion rate | **0.0363** | ≤ 0.15 ✓ |
@@ -361,11 +378,13 @@ Score returns a probability-weighted mean over level **indices**, so an
 - **~120 rows per probe.** Ten-bin ECE is noisy at that size. Bins carry
   Wilson intervals and adaptive (equal-mass) binning is the default; read
   the intervals, not the third decimal.
-- **Adaptive ECE is sensitive to tie handling at the ±0.003 level.** Jev
-  returns two-decimal probabilities and 154 of 360 rows sit at exactly
-  0.01, so five of the ten equal-mass bins contain that one tied value
-  (three consist of nothing else) and which tied rows fall on which
-  side of a bin edge is arbitrary. An
+- **Adaptive ECE is sensitive to tie handling at the ±0.004 level.** Jev
+  returns two-decimal probabilities and **153 of the 353 calibration rows
+  sit at exactly 0.01**, so five of the ten equal-mass bins contain that
+  one tied value (three consist of nothing else) and which tied rows fall
+  on which side of a bin edge is arbitrary. Measured directly by
+  permuting row order over the cached responses: 27 distinct ECE values
+  across 2,000 orderings, spread 0.0079, so ±0.004. An
   earlier draft of this table reported 0.0427 from the same responses in
   a different row order; the code now sorts rows canonically so the
   number is reproducible, but the fixed-width ECE (0.0454), which has no
