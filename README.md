@@ -285,7 +285,7 @@ tar xzf /tmp/20news.tar.gz -C ~/scikit_learn_data/20news_home
 python3 harness/corpus.py .data/jev-calibration/corpus.jsonl
 
 # verify the harness with no API key and no spend
-python3 harness/test_metrics.py     # 28 known-answer metric tests
+python3 harness/test_metrics.py     # 29 known-answer metric tests
 python3 harness/test_pipeline.py    # end-to-end against a mock Jev server
 
 # then, with a key in .env (or exported):
