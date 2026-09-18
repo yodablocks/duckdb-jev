@@ -528,6 +528,35 @@ def reliability_diagram(report, path: Path):
     return path
 
 
+def _guard_results(new: dict) -> None:
+    """Refuse to replace a larger completed run with a smaller one.
+
+    results.json costs real money to produce. A `--pilot` run, or a test
+    pointed at this directory, would otherwise silently overwrite a full
+    run with 10 rows of noise. Overwriting with an equal or larger sample
+    is fine: that is a legitimate re-run.
+    """
+    path = RESULTS / "results.json"
+    if not path.exists():
+        return
+    try:
+        old = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return
+    old_n, new_n = old.get("n_scored", 0), new.get("n_scored", 0)
+    if new_n < old_n:
+        backup = RESULTS / f"results.superseded-{old_n}rows.json"
+        if not backup.exists():
+            backup.write_text(json.dumps(old, indent=2))
+        sys.exit(
+            f"Refusing to overwrite results.json: it holds {old_n} scored "
+            f"rows and this run has only {new_n}.\n"
+            f"The existing run was copied to {backup.name}.\n"
+            "Delete or move results.json yourself if you really mean to "
+            "replace it."
+        )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pilot", action="store_true",
@@ -598,6 +627,7 @@ def main():
         "failed_rows": len(errors),
     }
 
+    _guard_results(report)
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "results.json").write_text(json.dumps(report, indent=2))
     diagram = reliability_diagram(report, RESULTS / "reliability.png")

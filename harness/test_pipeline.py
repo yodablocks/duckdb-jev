@@ -244,7 +244,10 @@ def main():
     print(f"PASS  gate evaluated: passed={report['gate']['passed']} "
           f"failures={report['gate']['failures']}")
 
-    # --- diagram renders ---
+    # --- diagram renders, into tmp and never over real results ---
+    # R.RESULTS holds measurements that cost real money. This test writes
+    # only to tmp; run_calibration.py separately refuses to overwrite a
+    # real run with mock output (see _guard_results).
     out = R.reliability_diagram(report, tmp / "rel.png")
     assert out and out.exists() and out.stat().st_size > 5000
     print(f"PASS  reliability diagram rendered ({out.stat().st_size:,} bytes)")
@@ -262,13 +265,24 @@ def main():
         assert r.returncode == 0, f"{candidate} is NOT gitignored"
     print("PASS  .env paths are gitignored")
 
-    # No key may be committed anywhere in the tree.
+    # No key may be committed anywhere in the tree. `.env.example` is
+    # deliberately tracked, so the check is that it carries no value and
+    # that no other .env variant is tracked at all.
     tracked = subprocess.run(
         ["git", "ls-files"], cwd=repo, capture_output=True, text=True
     ).stdout.split()
-    assert not [f for f in tracked if Path(f).name.startswith(".env")], \
-        "a .env file is tracked by git"
-    print("PASS  no .env file is tracked")
+    env_tracked = [f for f in tracked if Path(f).name.startswith(".env")]
+    assert env_tracked == ["tools/duckdb-jev/.env.example"], \
+        f"unexpected tracked env files: {env_tracked}"
+    for f in env_tracked:
+        for line in (repo / f).read_text().splitlines():
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            _, _, val = line.partition("=")
+            assert not val.strip().strip("'\""), \
+                f"{f} contains a value: template must stay empty"
+    print("PASS  only the empty .env.example is tracked")
 
     # load_env must not let a stale file override a real exported var.
     import os as _os

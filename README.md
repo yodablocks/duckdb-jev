@@ -3,10 +3,67 @@
 DuckDB scalar functions over TypeSafe AI's Jev model, so unstructured text
 columns can be filtered and sorted like numeric ones.
 
-**Status (2026-09-18): Phase 1 harness complete and tested. Calibration
-numbers not yet produced: no API key is available in this environment.**
-The corpus, client, metrics, gate and notebook all run; only the scoring
-pass is blocked. See [Running it](#running-it).
+**Status (2026-09-18): Phase 1 complete. `jev-1.13.0` passes all six gate
+conditions. Phase 2 is unblocked.** See [Results](#results).
+
+Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row). These are,
+as far as we know, the first independent calibration numbers published
+for Jev.
+
+## Results
+
+`model: jev-1.13.0`, question set `60658e143af92016`.
+
+| Primitive | Metric | Value | Gate |
+|---|---|---|---|
+| `jev_bool` | Brier | **0.0524** | |
+| | ECE (adaptive, 10 bins) | **0.0427** | ≤ 0.10 ✓ |
+| | resolution | 0.1820 | > 0 ✓ |
+| | AUC | 0.9637 | |
+| | inversion rate | **0.0363** | ≤ 0.15 ✓ |
+| `jev_choice` | accuracy | 0.8754 | |
+| | confidence ECE | 0.0768 | ≤ 0.10 ✓ |
+| `jev_score` | ordinal inversion | **0.1433** | ≤ 0.15 ✓ |
+| | binary inversion | 0.0370 | |
+| Invariant | negation \|P(q)+P(¬q)−1\| | 0.0161 | ≤ 0.15 ✓ |
+| | rubric mirror error | 0.0223 (0.74% of scale) | |
+
+Per probe (`jev_bool` ECE): medical 0.030, forsale 0.043, space 0.062.
+
+### Three things the headline number hides
+
+**1. The negation result is not about negation.** The jaggedness page
+disclaims `P(q) = 1 - P(not q)`, and the identity in fact holds well:
+median violation 0.010, only 2.8% of rows above 0.10. But the paraphrase
+control measures 0.0159 against negation's 0.0161, a ratio of **1.01x**.
+A semantically equivalent rewording disagrees just as much as a negation
+does. So this is general wording stability, not a negation-specific
+property, and the negation figure carries no information beyond the
+control. Publishing it alone would have overclaimed. This is precisely
+what the control was added to catch, and it fired.
+
+**2. The model is systematically underconfident.** 9 of 10 reliability
+bins sit above the diagonal, mean signed gap **+0.042**. That one-
+directional consistency rules out noise. It is the benign direction for
+ranking (ordering is preserved), but it means a `WHERE prob > 0.9`
+threshold is stricter than it reads: the true rate at a predicted 0.855
+is 0.914. Calibrate thresholds against this table, not against intuition.
+MCE 0.126 is ~3x ECE, and the two mid-range bins (predicted 0.029 and
+0.188) contribute over half the total error, so the miscalibration is
+concentrated where the model is genuinely uncertain.
+
+**3. `jev_score` is the weak link, and it is the sort key.** Ordinal
+inversion 0.1433 against a 0.15 threshold is the only condition that
+nearly failed, and it passes on a coarse proxy (the 3-level sampling
+stratum, not human relevance grades). `jev_score_val` is what semantic
+`ORDER BY` sorts on, so this is the number to re-measure on real data
+before trusting production sorting. The binary figure of 0.0370 looks
+far healthier and should not be quoted in its place: it cannot see
+mis-ordering within the positives, which is the graded ordering that
+`ORDER BY` actually exploits.
+
+The corpus, client, metrics, gate and notebook all run without a key;
+only the scoring pass needs one. See [Running it](#running-it).
 
 ---
 
