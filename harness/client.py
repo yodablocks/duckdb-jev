@@ -42,11 +42,29 @@ DEFAULT_MODEL = "jev-latest"
 # names TYPESAFE_API_KEY. Accept either rather than guessing.
 KEY_VARS = ("TYPESAFE_AI_API_KEY", "TYPESAFE_API_KEY")
 
-# Where to look for a .env file: the project root (tools/duckdb-jev/) and
-# the repo root, so either location works.
-_ENV_SEARCH = (
-    Path(__file__).resolve().parents[1] / ".env",   # tools/duckdb-jev/.env
-    Path(__file__).resolve().parents[3] / ".env",   # repo root .env
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def repo_root() -> Path:
+    """Locate the enclosing git repository root.
+
+    Do NOT hardcode a parent depth. This project is designed to graduate
+    from `taiwan-ideas/tools/duckdb-jev/` into its own repo, which changes
+    the nesting depth. A hardcoded parents[3] silently resolved `.data/`
+    to the user's HOME directory after that move: outside the repo, so
+    the cache and corpus landed somewhere the .gitignore did not cover.
+    """
+    d = PROJECT_ROOT
+    for candidate in (d, *d.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return d
+
+
+# Where to look for a .env file: the project root, then the repo root if
+# it differs (they are the same once this is a standalone repo).
+_ENV_SEARCH = tuple(
+    dict.fromkeys((PROJECT_ROOT / ".env", repo_root() / ".env"))
 )
 
 

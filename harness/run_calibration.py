@@ -27,11 +27,22 @@ from pathlib import Path
 
 import numpy as np
 
-from client import BudgetExceeded, JevClient, choice, has_api_key, noul, score
+from client import (
+    BudgetExceeded,
+    JevClient,
+    choice,
+    has_api_key,
+    noul,
+    repo_root,
+    score,
+)
 from corpus import PROBES
 import metrics as M
 
-DATA = Path(__file__).resolve().parents[3] / ".data" / "jev-calibration"
+# Anchored on the git root, not a hardcoded depth: this project moves
+# from taiwan-ideas/tools/duckdb-jev/ to its own repo, and a fixed depth
+# put .data/ in the user's home directory after the move.
+DATA = repo_root() / ".data" / "jev-calibration"
 CORPUS = DATA / "corpus.jsonl"
 CACHE = DATA / "responses.sqlite"
 RESULTS = Path(__file__).resolve().parents[1] / "results"

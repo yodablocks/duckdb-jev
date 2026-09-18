@@ -9,7 +9,7 @@ anything about Jev itself.
 The mock is deliberately miscalibrated (overconfident) so the gate has
 something real to fail on, and we can see the gate actually fires.
 
-Run: python3 tools/duckdb-jev/harness/test_pipeline.py
+Run: python3 harness/test_pipeline.py
 """
 
 from __future__ import annotations
@@ -256,8 +256,12 @@ def main():
     # These guard a credential, so they are asserted rather than assumed.
     import subprocess
 
-    repo = Path(__file__).resolve().parents[3]
-    for candidate in ("tools/duckdb-jev/.env", ".env", ".env.local"):
+    repo = C.repo_root()
+    # Paths are relative to the git root, which differs depending on
+    # whether this lives standalone or nested inside another repo.
+    rel = C.PROJECT_ROOT.relative_to(repo).as_posix()
+    prefix = "" if rel == "." else rel + "/"
+    for candidate in (f"{prefix}.env", ".env", ".env.local"):
         r = subprocess.run(
             ["git", "check-ignore", candidate],
             cwd=repo, capture_output=True, text=True,
@@ -272,7 +276,7 @@ def main():
         ["git", "ls-files"], cwd=repo, capture_output=True, text=True
     ).stdout.split()
     env_tracked = [f for f in tracked if Path(f).name.startswith(".env")]
-    assert env_tracked == ["tools/duckdb-jev/.env.example"], \
+    assert env_tracked == [f"{prefix}.env.example"], \
         f"unexpected tracked env files: {env_tracked}"
     for f in env_tracked:
         for line in (repo / f).read_text().splitlines():
