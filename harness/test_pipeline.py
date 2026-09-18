@@ -249,6 +249,37 @@ def main():
     assert out and out.exists() and out.stat().st_size > 5000
     print(f"PASS  reliability diagram rendered ({out.stat().st_size:,} bytes)")
 
+    # --- secret hygiene ------------------------------------------------
+    # These guard a credential, so they are asserted rather than assumed.
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[3]
+    for candidate in ("tools/duckdb-jev/.env", ".env", ".env.local"):
+        r = subprocess.run(
+            ["git", "check-ignore", candidate],
+            cwd=repo, capture_output=True, text=True,
+        )
+        assert r.returncode == 0, f"{candidate} is NOT gitignored"
+    print("PASS  .env paths are gitignored")
+
+    # No key may be committed anywhere in the tree.
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=repo, capture_output=True, text=True
+    ).stdout.split()
+    assert not [f for f in tracked if Path(f).name.startswith(".env")], \
+        "a .env file is tracked by git"
+    print("PASS  no .env file is tracked")
+
+    # load_env must not let a stale file override a real exported var.
+    import os as _os
+    env_file = repo / "tools" / "duckdb-jev" / ".env"
+    if env_file.is_file():
+        _os.environ["TYPESAFE_AI_API_KEY"] = "exported-wins"
+        C.load_env()
+        assert _os.environ["TYPESAFE_AI_API_KEY"] == "exported-wins", \
+            "stale .env overrode an exported key"
+        print("PASS  exported key takes precedence over .env")
+
     srv.shutdown()
     print("\nall pipeline tests passed")
 

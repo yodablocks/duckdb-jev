@@ -151,6 +151,27 @@ through, and `jev_score_val` is the accessor `ORDER BY` actually sorts on.
 Phase 1 needs **no new packages**: numpy, scipy, sklearn, matplotlib and
 requests are already present. `duckdb` is a Phase 2 dependency only.
 
+### The API key
+
+Put it in a `.env` file rather than pasting it anywhere it could be
+logged. `.env` is gitignored (and `test_pipeline.py` asserts that, so the
+protection cannot rot silently):
+
+```sh
+cd tools/duckdb-jev
+cp .env.example .env
+$EDITOR .env          # TYPESAFE_AI_API_KEY=your-key-here
+```
+
+The harness looks for `.env` in `tools/duckdb-jev/` and at the repo root,
+and accepts either `TYPESAFE_AI_API_KEY` or `TYPESAFE_API_KEY` (the build
+spec names the first, the published SDK page the second). An already
+exported shell variable always wins, so a stale `.env` cannot silently
+override a key you set deliberately.
+
+`export TYPESAFE_AI_API_KEY=...` also works if you prefer not to have the
+key on disk.
+
 ```sh
 # one-time corpus download (~14MB, human-labeled, research licence)
 mkdir -p ~/scikit_learn_data/20news_home
@@ -165,8 +186,7 @@ python3 harness/corpus.py ../../.data/jev-calibration/corpus.jsonl
 python3 harness/test_metrics.py     # 26 known-answer metric tests
 python3 harness/test_pipeline.py    # end-to-end against a mock Jev server
 
-# then, with a key:
-export TYPESAFE_AI_API_KEY=...
+# then, with a key in .env (or exported):
 python3 harness/run_calibration.py --pilot   # 10 rows + cost extrapolation
 python3 harness/run_calibration.py           # full run
 python3 harness/run_calibration.py --analyze-only   # recompute, no spend
@@ -258,7 +278,9 @@ harness/metrics.py          calibration + ranking + invariants + gate
 harness/run_calibration.py  scoring run, analysis, reliability diagram
 harness/udf.py              Phase 2 DuckDB functions (gated on Phase 1)
 harness/test_metrics.py     known-answer tests for every metric
-harness/test_pipeline.py    end-to-end test against a mock Jev server
+harness/test_pipeline.py    end-to-end test against a mock Jev server,
+                            plus secret-hygiene assertions
+.env.example                copy to .env and add your key (.env is ignored)
 notebook/calibration.ipynb  the publishable artifact
 results/                    results.json + reliability.png (after a run)
 ```

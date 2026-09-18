@@ -42,6 +42,44 @@ DEFAULT_MODEL = "jev-latest"
 # names TYPESAFE_API_KEY. Accept either rather than guessing.
 KEY_VARS = ("TYPESAFE_AI_API_KEY", "TYPESAFE_API_KEY")
 
+# Where to look for a .env file: the project root (tools/duckdb-jev/) and
+# the repo root, so either location works.
+_ENV_SEARCH = (
+    Path(__file__).resolve().parents[1] / ".env",   # tools/duckdb-jev/.env
+    Path(__file__).resolve().parents[3] / ".env",   # repo root .env
+)
+
+
+def load_env(verbose: bool = False) -> str | None:
+    """Load a .env file if present, without clobbering a real env var.
+
+    An already-exported variable always wins: if you have a key in your
+    shell, a stale .env should not silently override it.
+
+    Uses python-dotenv when installed and falls back to a small parser
+    otherwise, so the harness never hard-depends on it.
+    """
+    for path in _ENV_SEARCH:
+        if not path.is_file():
+            continue
+        try:
+            from dotenv import load_dotenv
+
+            load_dotenv(path, override=False)
+        except ImportError:
+            for line in path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip().removeprefix("export ").strip()
+                v = v.strip().strip("'\"")
+                os.environ.setdefault(k, v)
+        if verbose:
+            print(f"loaded env from {path}")
+        return str(path)
+    return None
+
 
 class BudgetExceeded(RuntimeError):
     """Raised when the token ceiling is hit. Fails loud, by design."""
@@ -52,15 +90,25 @@ class NoAPIKey(RuntimeError):
 
 
 def api_key() -> str:
+    if not any(os.environ.get(v) for v in KEY_VARS):
+        load_env()
     for var in KEY_VARS:
         if os.environ.get(var):
             return os.environ[var]
     raise NoAPIKey(
-        "No API key. Set one of: " + ", ".join(KEY_VARS)
+        "No API key found.\n\n"
+        f"Either create {_ENV_SEARCH[0]} containing:\n"
+        "    TYPESAFE_AI_API_KEY=your-key-here\n\n"
+        "or export it in your shell:\n"
+        "    export TYPESAFE_AI_API_KEY=your-key-here\n\n"
+        f"Accepted variable names: {', '.join(KEY_VARS)}"
     )
 
 
 def has_api_key() -> bool:
+    if any(os.environ.get(v) for v in KEY_VARS):
+        return True
+    load_env()
     return any(os.environ.get(v) for v in KEY_VARS)
 
 
