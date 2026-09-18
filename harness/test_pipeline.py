@@ -199,6 +199,17 @@ def main():
     b = json.dumps(R.analyze(rows, dict(items)), sort_keys=True)
     assert a == b, "analyze() output depends on response insertion order"
     print("PASS  analyze() is independent of response insertion order")
+
+    # --- --analyze-only keeps the paid run's cost record ---
+    paid = {"requests": 350, "cache_hits": 10, "input_tokens": 307464,
+            "output_tokens": 51549, "failed_rows": 0}
+    zero = {"requests": 0, "cache_hits": 0, "input_tokens": 0,
+            "output_tokens": 0, "failed_rows": 0}
+    kept = R.carry_forward_usage(zero, {"usage": paid}, analyze_only=True)
+    assert kept["input_tokens"] == 307464 and kept["reanalyzed_from_cache"]
+    assert R.carry_forward_usage(zero, {"usage": paid}, analyze_only=False) == zero
+    assert R.carry_forward_usage(zero, None, analyze_only=True) == zero
+    print("PASS  --analyze-only carries the paid run's usage forward")
     assert "boolean" in report and "negation_invariant" in report
     assert "choice" in report and "score" in report
     assert report["score"]["observed_range"][1] <= R.SCORE_SCALE_MAX
