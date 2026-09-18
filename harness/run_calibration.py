@@ -546,6 +546,33 @@ def reliability_diagram(report, path: Path):
     return path
 
 
+def carry_forward_usage(new_usage: dict, prior: dict | None, analyze_only: bool) -> dict:
+    """Keep the cost record of the run that produced the cached responses.
+
+    A re-analysis spends nothing, so its own usage block is all zeros. If
+    that overwrote results.json, the only record of what the numbers cost
+    (the README quotes it) would be gone after the first --analyze-only.
+    The prior block is carried forward and marked, so the file still says
+    what the paid run cost and that this copy was recomputed from cache.
+    """
+    if not analyze_only:
+        return new_usage
+    prior_usage = (prior or {}).get("usage") or {}
+    if not prior_usage.get("requests"):
+        return new_usage
+    return dict(prior_usage, reanalyzed_from_cache=True)
+
+
+def _read_results() -> dict | None:
+    path = RESULTS / "results.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def _guard_results(new: dict) -> None:
     """Refuse to replace a larger completed run with a smaller one.
 
@@ -637,13 +664,17 @@ def main():
         return
 
     report = analyze(rows, responses)
-    report["usage"] = {
-        "requests": u.requests,
-        "cache_hits": u.cache_hits,
-        "input_tokens": u.input_tokens,
-        "output_tokens": u.output_tokens,
-        "failed_rows": len(errors),
-    }
+    report["usage"] = carry_forward_usage(
+        {
+            "requests": u.requests,
+            "cache_hits": u.cache_hits,
+            "input_tokens": u.input_tokens,
+            "output_tokens": u.output_tokens,
+            "failed_rows": len(errors),
+        },
+        _read_results(),
+        args.analyze_only,
+    )
 
     _guard_results(report)
     RESULTS.mkdir(parents=True, exist_ok=True)
