@@ -74,20 +74,54 @@ CHOICE_GROUPS = {
 }
 
 
-# Near-miss groups whose "no" label is genuinely unsafe. A
-# talk.politics.misc post about healthcare reform really is about health;
-# a rec.autos post selling a part really is offering an item for sale. The
-# author picking a different newsgroup does not entail "not about X".
+# Per-ROW ambiguity detection, not per-group.
 #
-# These rows stay in the corpus (they are the hard ranking cases) but are
-# flagged so the analysis can exclude them from ECE, where a correct 0.6
-# scored against a wrong False reads as miscalibration and can fail the
-# gate on label error alone.
-AMBIGUOUS_NEGATIVES = {
-    ("forsale", "rec.autos"),
-    ("forsale", "comp.sys.mac.hardware"),
-    ("medical", "talk.politics.misc"),
+# The problem: the author picking a different newsgroup does not entail
+# "not about X". A rec.autos post selling a part really is offering an
+# item for sale; a talk.politics.misc post on healthcare reform really is
+# about health. Scoring a correct 0.6 against a wrong False reads as
+# miscalibration and can fail the gate on label error alone.
+#
+# The first fix was to ban whole groups, which was wrong twice over.
+# Measured contamination is only 2-5% per group, so banning a group throws
+# away ~95% of good rows; and it removed BOTH of forsale's near-miss
+# groups, collapsing that probe to clear positives plus clear negatives.
+# That is exactly the vacuous-gate failure the stratified sampler exists
+# to prevent, reintroduced by the fix.
+#
+# So: flag the individual rows whose negative label is actually doubtful,
+# and keep the rest. Flagged rows stay in the corpus for ranking (they are
+# the hard cases where sort order matters) and are held out of calibration.
+AMBIGUITY_PATTERNS = {
+    "forsale": re.compile(
+        r"\b(for ?sale|selling|i'?m selling|asking \$|best offer|\bobo\b|"
+        r"shipped conus|price:|\$\d{2,}|make (me )?an offer|want to sell|"
+        r"\bwtb\b|\bfs\b:)\b",
+        re.I,
+    ),
+    "medical": re.compile(
+        r"\b(health ?care|medical|disease|patient|doctor|physician|"
+        r"treatment|cancer|diagnos\w+|symptom|prescription|therapy|"
+        r"clinical|medicine)\b",
+        re.I,
+    ),
+    "space": re.compile(
+        r"\b(nasa|orbit\w*|spacecraft|satellite|space shuttle|astronaut|"
+        r"launch vehicle|payload|interplanetary|space station)\b",
+        re.I,
+    ),
 }
+
+
+def is_ambiguous_negative(probe: str, text: str) -> bool:
+    """True if a row labeled False plausibly deserves True.
+
+    Deliberately over-inclusive: a false positive here costs one row of
+    calibration sample, while a false negative puts a wrong label straight
+    into the ECE that gates Phase 2.
+    """
+    pat = AMBIGUITY_PATTERNS.get(probe)
+    return bool(pat and pat.search(text))
 
 
 @dataclass
@@ -204,8 +238,12 @@ def build(n_per_probe: int = 120, seed: int = 20260918) -> list[Row]:
                         # point of offering "other" is that the model can
                         # decline instead of being forced into a wrong bucket.
                         choice_label=CHOICE_GROUPS.get(group, "other"),
-                        label_confident=(probe_name, group)
-                        not in AMBIGUOUS_NEGATIVES,
+                        # Positives are safe: the author chose the group.
+                        # Only negatives can be doubtful.
+                        label_confident=(
+                            stratum == "positive"
+                            or not is_ambiguous_negative(probe_name, text)
+                        ),
                     )
                 )
 

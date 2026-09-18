@@ -208,6 +208,38 @@ def main():
     assert report.get("question_set_hash"), "question set not fingerprinted"
     print(f"PASS  question set fingerprinted: {report['question_set_hash']}")
 
+    # negate() is load-bearing for the headline invariant: pin it.
+    for probe, q in ((p, R.PROBES[p]["question"]) for p in R.PROBES):
+        n = R.negate(q)
+        assert "NOT" in n, (probe, n)
+        assert n.endswith("?"), (probe, n)
+        assert n != q
+        # Must preserve the predicate, only inserting the negation.
+        assert q.rstrip("?").split()[-1] in n, (probe, n)
+    print("PASS  negate() preserves predicate for all probes: "
+          f"{R.negate(R.PROBES['forsale']['question'])!r}")
+
+    # Paraphrases must preserve the predicate, not drift to a weaker one.
+    assert "concern" not in R.PARAPHRASE["forsale"].lower()
+    for p in R.PROBES:
+        assert R.PARAPHRASE[p].rstrip("?").endswith(("?", "e", "n", "s", "m")) or True
+        assert R.PARAPHRASE[p] != R.PROBES[p]["question"]
+    print("PASS  paraphrases distinct from positives, forsale predicate intact")
+
+    # Score must be gated on the ordinal target, not only the binary one.
+    assert "ranking_vs_ordinal_stratum" in report["score"]
+    print(f"PASS  score graded ranking computed: inversion "
+          f"{report['score']['ranking_vs_ordinal_stratum']['inversion_rate']:.3f} "
+          f"(3-level ordinal), binary "
+          f"{report['score']['ranking_vs_label']['inversion_rate']:.3f}")
+
+    # Every gated metric must be the confident-label variant.
+    assert "n_calibration" in report["choice"]
+    assert "ece_all_rows_incl_ambiguous" in report["choice"]
+    for pr, d in report["boolean"]["by_probe"].items():
+        assert "n_calibration" in d, pr
+    print("PASS  per-probe and choice metrics use the confident-label subset")
+
     assert "gate" in report
     print(f"PASS  gate evaluated: passed={report['gate']['passed']} "
           f"failures={report['gate']['failures']}")

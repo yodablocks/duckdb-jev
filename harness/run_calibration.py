@@ -52,6 +52,18 @@ RELEVANCE_RUBRIC = [
 ]
 SCORE_SCALE_MAX = len(RELEVANCE_RUBRIC) - 1
 
+# Paraphrases that preserve the predicate of each probe question, written
+# per probe rather than generated from a topic string. Each asks the same
+# thing as PROBES[probe]["question"] in different words.
+PARAPHRASE = {
+    "space": "Does this message discuss spaceflight, astronomy, "
+             "or the exploration of space?",
+    "medical": "Does this message discuss medicine, health, "
+               "or the treatment of illness?",
+    # Preserves "is an offer", rather than the weaker "concerns selling".
+    "forsale": "Is this message an offer to sell an item?",
+}
+
 CHOICE_OPTIONS = {
     "space": "Spaceflight, astronomy, or space exploration.",
     "medicine": "Medicine, health, disease, or medical treatment.",
@@ -104,9 +116,15 @@ def questions_for(probe: str) -> dict:
         # asymmetry: if paraphrase disagreement is as large as negation
         # disagreement, the model is sensitive to wording in general and
         # the negation result is not specifically about negation.
-        "bool_paraphrase": noul(
-            f"Does this message concern {topic}?"
-        ),
+        #
+        # The paraphrase must preserve the PREDICATE, not just the topic.
+        # "Does this concern offering an item for sale?" is a different
+        # question from "Is this offering an item for sale?": a post
+        # discussing selling practices concerns sales without being an
+        # offer. A drifted paraphrase inflates the control, which is the
+        # denominator of negation_to_paraphrase_ratio, and would push the
+        # headline toward "not negation-specific" for the wrong reason.
+        "bool_paraphrase": noul(PARAPHRASE[probe]),
         # Choice -> jev_choice
         "choice": choice(
             "Which single subject best describes what this message is about?",
@@ -237,28 +255,40 @@ def analyze(rows, responses) -> dict:
         }
 
         # Per-probe, because one bad probe can hide inside the average.
+        # Uses `conf`, matching the headline: a per-probe ECE computed on
+        # unfiltered rows would silently disagree with the headline number
+        # a reader is comparing it against.
         report["boolean"]["by_probe"] = {}
         for probe in PROBES:
-            m = np.array([row["probe"] == probe for row, _ in paired]) & ok
-            if m.sum() > 10:
+            pm = np.array([row["probe"] == probe for row, _ in paired])
+            mc = pm & conf
+            if mc.sum() > 10:
                 report["boolean"]["by_probe"][probe] = {
-                    "n": int(m.sum()),
-                    "brier": M.brier(p_bool[m], y[m]),
-                    "ece": M.ece(p_bool[m], y[m], n_bins=5)["ece"],
-                    "ranking": M.rank_metrics(p_bool[m], y[m]),
+                    "n_calibration": int(mc.sum()),
+                    "brier": M.brier(p_bool[mc], y[mc]),
+                    "ece": M.ece(p_bool[mc], y[mc], n_bins=5)["ece"],
+                    # Ranking keeps every row, as at the top level.
+                    "ranking": M.rank_metrics(p_bool[pm & ok], y[pm & ok]),
+                    "n_ranking": int((pm & ok).sum()),
                 }
 
         # Per-stratum. The near_miss rows are the informative ones: if the
         # model is confident there, it is confidently wrong somewhere.
         report["boolean"]["by_stratum"] = {}
         for stratum in ("positive", "near_miss", "far"):
-            m = np.array([row["stratum"] == stratum for row, _ in paired]) & ok
-            if m.sum() > 5:
+            ms = np.array([row["stratum"] == stratum for row, _ in paired]) & conf
+            if ms.sum() > 5:
                 report["boolean"]["by_stratum"][stratum] = {
-                    "n": int(m.sum()),
-                    "mean_prob": float(p_bool[m].mean()),
-                    "base_rate": float(y[m].mean()),
-                    "brier": M.brier(p_bool[m], y[m]),
+                    "n": int(ms.sum()),
+                    "mean_prob": float(p_bool[ms].mean()),
+                    "base_rate": float(y[ms].mean()),
+                    "brier": M.brier(p_bool[ms], y[ms]),
+                    # Spread check: if a probe's confident subset collapses
+                    # to the tails, its ECE is an easy-case number.
+                    "prob_p10_p90": [
+                        float(np.percentile(p_bool[ms], 10)),
+                        float(np.percentile(p_bool[ms], 90)),
+                    ],
                 }
 
     # ---- negation invariant (needs no labels) ----
@@ -291,28 +321,59 @@ def analyze(rows, responses) -> dict:
             report["paraphrase_control"]["negation_to_paraphrase_ratio"] = float(
                 neg_v / diff.mean()
             )
+        # Also per probe, so one badly-worded paraphrase cannot move the
+        # aggregate ratio and mislabel the headline invariant.
+        per_probe = {}
+        for probe in PROBES:
+            pm = par & np.array([row["probe"] == probe for row, _ in paired])
+            if pm.sum() > 5:
+                pd_ = float(np.abs(p_bool[pm] - p_par[pm]).mean())
+                nv = float(np.abs(p_bool[pm] + p_neg[pm] - 1).mean())
+                per_probe[probe] = {
+                    "n": int(pm.sum()),
+                    "paraphrase_mean_abs_diff": pd_,
+                    "negation_mean_abs_violation": nv,
+                    "ratio": float(nv / pd_) if pd_ > 0 else None,
+                }
+        report["paraphrase_control"]["by_probe"] = per_probe
 
     # ---- Choice ----
-    ch_rows = [(row, r) for row, r in paired if row.get("choice_label")]
-    if ch_rows:
-        correct, confs = [], []
-        for row, r in ch_rows:
-            a = ans(r, "choice")
-            if "choice" not in a:
-                continue
-            correct.append(1.0 if a["choice"] == row["choice_label"] else 0.0)
-            confs.append(a.get("confidence", np.nan))
-        correct, confs = np.array(correct), np.array(confs, float)
-        m = ~np.isnan(confs)
-        if m.sum():
+    # Choice carries the same label ambiguity: a rec.autos post selling a
+    # car is labeled `cars`, but `for_sale` is also a listed option and is
+    # arguably right. Since choice ECE is a blocking gate condition, it is
+    # computed on confidently-labeled rows and reported both ways.
+    correct, confs, conf_flags = [], [], []
+    for row, r in paired:
+        if not row.get("choice_label"):
+            continue
+        a = ans(r, "choice")
+        if "choice" not in a:
+            continue
+        correct.append(1.0 if a["choice"] == row["choice_label"] else 0.0)
+        confs.append(a.get("confidence", np.nan))
+        conf_flags.append(row.get("label_confident", True))
+    if correct:
+        correct = np.array(correct)
+        confs = np.array(confs, float)
+        cflag = np.array(conf_flags, bool)
+        mall = ~np.isnan(confs)
+        mconf = mall & cflag
+        if mconf.sum():
             # For Choice, calibration means: does stated confidence predict
             # whether the pick was right?
             report["choice"] = {
-                "n": int(m.sum()),
-                "accuracy": float(correct[m].mean()),
-                "brier_on_confidence": M.brier(confs[m], correct[m]),
-                "ece_on_confidence": M.ece(confs[m], correct[m], n_bins=10),
-                "decomposition": M.brier_decomposition(confs[m], correct[m]),
+                "n_calibration": int(mconf.sum()),
+                "n_all_rows": int(mall.sum()),
+                "accuracy": float(correct[mconf].mean()),
+                "accuracy_all_rows": float(correct[mall].mean()),
+                "brier_on_confidence": M.brier(confs[mconf], correct[mconf]),
+                "ece_on_confidence": M.ece(confs[mconf], correct[mconf], n_bins=10),
+                "ece_all_rows_incl_ambiguous": M.ece(
+                    confs[mall], correct[mall], n_bins=10
+                )["ece"],
+                "decomposition": M.brier_decomposition(confs[mconf], correct[mconf]),
+                "calibration_note": "computed on confidently-labeled rows; "
+                                    "gate uses ece_on_confidence",
             }
 
     # ---- Score ----
@@ -321,13 +382,33 @@ def analyze(rows, responses) -> dict:
     if m.sum():
         # Brier/ECE do not apply to a continuous score. Rank metrics do,
         # and ranking is what ORDER BY depends on.
+        mc = m & conf
+        # Ordinal target. The binary label can only order positives against
+        # negatives; it cannot see whether the score correctly orders
+        # WITHIN the positives, which is the graded ordering ORDER BY
+        # actually exploits. The 3-level stratum (far < near_miss <
+        # positive) is a coarse ordinal proxy for that, so it is reported
+        # alongside and is the more honest measure of graded ranking.
+        strat_rank = np.array(
+            [{"far": 0, "near_miss": 1, "positive": 2}[row["stratum"]]
+             for row, _ in paired],
+            float,
+        )
         report["score"] = {
             "n": int(m.sum()),
+            "n_calibration": int(mc.sum()),
             "observed_range": [float(sc[m].min()), float(sc[m].max())],
             "mean": float(sc[m].mean()),
-            "ranking_vs_label": M.rank_metrics(sc[m], y[m]),
+            # Gated figure: confident labels only.
+            "ranking_vs_label": M.rank_metrics(sc[mc], y[mc]),
+            "ranking_vs_label_all_rows": M.rank_metrics(sc[m], y[m]),
+            # Graded ranking over 3 ordinal levels rather than 2.
+            "ranking_vs_ordinal_stratum": M.rank_metrics(sc[mc], strat_rank[mc]),
             "note": "Brier/ECE omitted: they are classification metrics and "
-                    "do not apply to a continuous score.",
+                    "do not apply to a continuous score. ranking_vs_label is "
+                    "binary so it cannot detect mis-ordering within the "
+                    "positives; see ranking_vs_ordinal_stratum for graded "
+                    "ordering.",
         }
         # A stratum-ordered check: far < near_miss < positive should hold
         # if the rubric is genuinely ordinal.
@@ -385,8 +466,10 @@ def analyze(rows, responses) -> dict:
         negation=report.get("negation_invariant", {}).get("mean_abs_violation"),
         # Gated separately: jev_score_val is what ORDER BY sorts on, so a
         # Score that inverts pairs must stop Phase 2 on its own merits.
+        # Gate on the ordinal-stratum inversion, which can see mis-ordering
+        # within the positives; the binary version cannot.
         score_inversion=report.get("score", {})
-        .get("ranking_vs_label", {})
+        .get("ranking_vs_ordinal_stratum", {})
         .get("inversion_rate"),
         choice_ece=report.get("choice", {}).get("ece_on_confidence", {}).get("ece"),
     )

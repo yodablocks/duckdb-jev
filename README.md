@@ -45,7 +45,7 @@ because they need **no ground-truth labels at all**:
 | Invariant | What it catches |
 |---|---|
 | Negation symmetry: `P(q)` vs `1 - P(not q)` | Probabilities that move with phrasing rather than evidence. The `jev-1.13` jaggedness page explicitly disclaims this identity, which is what makes it worth measuring. |
-| Paraphrase control: `P(q)` vs `P(reworded q)` | The confound in the line above. A semantically equivalent rewording *should* agree, so this is the floor for general wording sensitivity. If it is as large as the negation violation, the asymmetry is not about negation at all, and the headline invariant has to be reported that way. |
+| Paraphrase control: `P(q)` vs `P(reworded q)` | The confound in the line above. A semantically equivalent rewording *should* agree, so this is the floor for general wording sensitivity. If it is as large as the negation violation, the asymmetry is not about negation at all, and the headline invariant has to be reported that way. Paraphrases preserve the **predicate**, not just the topic ("is this an offer to sell" not "does this concern selling"), because a drifted paraphrase inflates the control and would push the headline toward "not negation-specific" for the wrong reason. Reported per probe as well as aggregate, so one bad string cannot move the conclusion. |
 | Score rubric ordinality: reversed rubric should mirror | Levels are scored independently and the model never sees level numbers, so ordinality is imposed entirely by *our* array order. If `score_reversed != scale_max - score`, the rubric is not ordinal to the model and every sort key built from it is noise. |
 
 The negation question is derived **mechanically** from the positive one
@@ -103,13 +103,21 @@ stratum *and* in the mid-probability region where ECE is decided. A
 correct 0.6 scored against a wrong `False` reads as miscalibration and
 could fail a 0.10 gate on label error alone.
 
-So the groups where the negative is genuinely arguable are listed in
-`AMBIGUOUS_NEGATIVES` and flagged `label_confident=False` (75 of 360
-rows). They are **excluded from Brier/ECE** and **kept for ranking**,
-because ranking only needs the pairs the labels do order, and those hard
-rows are exactly where sort order matters. `results.json` reports
-`ece_all_rows_incl_ambiguous` alongside, so it is visible how much work
-the exclusion is doing.
+So doubtful rows are detected **per row, not per group**
+(`is_ambiguous_negative`) and flagged `label_confident=False`: 7 of 360
+rows. They are **excluded from every gated calibration metric** and
+**kept for ranking**, because ranking only needs the pairs the labels do
+order, and those hard rows are exactly where sort order matters.
+`results.json` reports the all-rows figure alongside each gated one, so
+it is visible how much work the exclusion is doing.
+
+Banning whole groups was the first attempt and was wrong twice over.
+Measured contamination is only 2-5% per group, so a ban discards ~95% of
+usable rows; worse, it removed *both* of `forsale`'s near-miss groups,
+collapsing that probe to clear positives plus clear negatives. That is
+precisely the vacuous-gate failure constraint 4 exists to prevent,
+reintroduced by the fix. Per-row filtering keeps all three strata on all
+three probes (47 near-misses each).
 
 Document headers are stripped before scoring. A leftover `Newsgroups:` or
 `Subject:` line hands the model the answer, and an `Organization: Memorial
@@ -134,7 +142,7 @@ through, and `jev_score_val` is the accessor `ORDER BY` actually sorts on.
 | `jev_bool` ECE | ≤ 0.10 | A stated 0.8 that is really 0.7 is tolerable for ranking; wider and the probability is decorative. |
 | `jev_bool` inversion rate | ≤ 0.15 | Past roughly one bad pair in six, a sorted page looks visibly wrong. |
 | `jev_bool` resolution | > 0 | At or below zero, the model is not separating classes at all. A model predicting the base rate every time scores a respectable Brier and is useless for `ORDER BY`. |
-| **`jev_score` inversion rate** | ≤ 0.15 | The direct measure of whether semantic `ORDER BY` works. Gated on its own merits. |
+| **`jev_score` inversion rate** | ≤ 0.15 | Graded ranking, scored against the 3-level ordinal stratum rather than the binary label, so it can detect mis-ordering *within* the positives. A necessary condition for semantic `ORDER BY`, gated on its own merits. |
 | `jev_choice` confidence ECE | ≤ 0.10 | Does stated confidence predict whether the pick was right? |
 | Negation asymmetry | ≤ 0.15 | Beyond this, phrasing moves the answer as much as evidence does. |
 
@@ -234,6 +242,10 @@ Score returns a probability-weighted mean over level **indices**, so an
   "the author posted elsewhere", not "a human judged this not-about-X".
 - **Invariants bound wording sensitivity, not correctness.** A model can
   be perfectly self-consistent and consistently wrong.
+- **Graded ranking is proxied, not measured directly.** The ordinal target
+  is the 3-level sampling stratum, not a human-assigned relevance grade.
+  It detects gross mis-ordering within the positives; it cannot certify
+  fine-grained rank quality.
 - **`jev-latest` is a moving target.** The `model` field from each
   response is recorded; these numbers attach to one version.
 
