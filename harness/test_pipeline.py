@@ -70,7 +70,18 @@ class Handler(BaseHTTPRequestHandler):
             elif q["type"] == "score":
                 n = len(q["criteria"])
                 dist = {str(i): 0.1 for i in range(n)}
-                dist[str(n - 1 if positive else 0)] = 0.7
+                # A well-behaved ordinal model: peak at the top level when
+                # the criteria run low->high, and at the bottom when they
+                # are reversed. So the mock genuinely mirrors and the
+                # ordinality check has something real to verify rather than
+                # passing because both answers are identical.
+                # "nothing to do with" marks the low end of our rubric; if
+                # it appears last, the array was reversed.
+                reversed_rubric = "nothing to do with" in str(q["criteria"][-1])
+                high = (n - 1) if positive else 0
+                if reversed_rubric:
+                    high = (n - 1) - high
+                dist[str(high)] = 0.7
                 tot = sum(dist.values())
                 dist = {k: v / tot for k, v in dist.items()}
                 val = sum(int(k) * v for k, v in dist.items())
@@ -113,9 +124,17 @@ def main():
     assert not errors, errors
     assert len(Handler.request_log) == 60, (
         f"batching broken: {len(Handler.request_log)} requests for 60 rows")
-    assert len(Handler.request_log[0]["questions"]) == 4, "4 questions per request"
+    # 6 judgments per row in one request: bool, its mechanical negation, a
+    # paraphrase control, choice, score, and score with the rubric reversed.
+    # Naively that is 6 requests per row and 6x the state tokens.
+    n_q = len(Handler.request_log[0]["questions"])
+    assert n_q == 6, f"expected 6 questions per request, got {n_q}"
+    assert set(Handler.request_log[0]["questions"]) == {
+        "bool", "bool_negated", "bool_paraphrase",
+        "choice", "score", "score_reversed",
+    }, Handler.request_log[0]["questions"].keys()
     print(f"PASS  batching: 60 rows -> {len(Handler.request_log)} requests, "
-          f"4 questions each")
+          f"{n_q} questions each (naive shape would be {60 * n_q} requests)")
 
     # --- cache: second pass must make zero requests ---
     before = len(Handler.request_log)
@@ -169,6 +188,25 @@ def main():
           f"(mock injects 0.08 by construction)")
     print(f"      score range={report['score']['observed_range']} "
           f"of 0..{R.SCORE_SCALE_MAX}")
+
+    # The invariants the README advertises must actually be produced.
+    assert "paraphrase_control" in report, "paraphrase control not computed"
+    assert "rubric_ordinality" in report["score"], "rubric ordinality not computed"
+    print(f"PASS  paraphrase control computed: "
+          f"mean diff {report['paraphrase_control']['mean_abs_diff']:.3f}")
+    ro = report["score"]["rubric_ordinality"]
+    print(f"PASS  rubric ordinality computed: mirror error "
+          f"{ro['mean_abs_mirror_error']:.3f} "
+          f"({ro['mean_error_as_scale_fraction']:.1%} of scale)")
+
+    # Ambiguous near-miss rows must be held out of calibration.
+    assert report["boolean"]["n_excluded_ambiguous"] > 0, "exclusion not applied"
+    print(f"PASS  ambiguous labels excluded from ECE: "
+          f"{report['boolean']['n_calibration']} used, "
+          f"{report['boolean']['n_excluded_ambiguous']} held out")
+
+    assert report.get("question_set_hash"), "question set not fingerprinted"
+    print(f"PASS  question set fingerprinted: {report['question_set_hash']}")
 
     assert "gate" in report
     print(f"PASS  gate evaluated: passed={report['gate']['passed']} "

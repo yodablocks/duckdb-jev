@@ -148,6 +148,27 @@ g3 = Gate()
 assert not g3.check(ece_val=0.01, inversion=0.02, resolution=0.0, negation=0.01)
 print(f"PASS  gate catches zero resolution: {g3.failures}")
 
+# The regression that matters most: a Boolean that passes everything while
+# Score inverts a third of its pairs must still fail, because jev_score_val
+# is what ORDER BY sorts on.
+g4 = Gate()
+assert not g4.check(
+    ece_val=0.02, inversion=0.03, resolution=0.2, negation=0.02,
+    score_inversion=0.33,
+)
+assert "jev_score" in g4.failures[0], g4.failures
+print(f"PASS  gate catches bad Score ranking despite good Boolean: {g4.failures}")
+
+g5 = Gate()
+assert not g5.check(ece_val=0.02, inversion=0.03, resolution=0.2,
+                    negation=0.02, choice_ece=0.4)
+print(f"PASS  gate catches bad Choice confidence: {g5.failures}")
+
+g6 = Gate()
+assert g6.check(ece_val=0.02, inversion=0.03, resolution=0.2, negation=0.02,
+                score_inversion=0.05, choice_ece=0.04)
+print("PASS  gate passes when all three primitives are good")
+
 print()
 if failures:
     print(f"{len(failures)} FAILURES: {failures}")

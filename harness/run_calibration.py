@@ -62,6 +62,26 @@ CHOICE_OPTIONS = {
 }
 
 
+def negate(question: str) -> str:
+    """Build the logical complement mechanically from the same string.
+
+    Hand-writing a separate negative sentence introduces a confound: if
+    the measured asymmetry is large, we cannot tell "Jev violates the
+    identity" from "my two strings were not actually complements". So the
+    negation is derived from the positive question by construction, and
+    the only difference between the framings is the inserted negation.
+
+    Note this is still not a *guaranteed* complement in natural language;
+    it is only as good as the transformation. Hence the third framing in
+    questions_for, which triangulates.
+    """
+    q = question.strip().rstrip("?")
+    for prefix in ("Is this message ", "Is this "):
+        if q.startswith(prefix):
+            return f"{prefix}NOT {q[len(prefix):]}?"
+    return f"Is it NOT the case that: {q}?"
+
+
 def questions_for(probe: str) -> dict:
     """Every judgment for one row, asked in a single request."""
     p = PROBES[probe]
@@ -74,11 +94,18 @@ def questions_for(probe: str) -> dict:
     return {
         # Boolean -> jev_bool
         "bool": noul(p["question"]),
-        # The negated twin, asked in the same request but as a separate
-        # question. The jaggedness page disclaims P(q) == 1 - P(not q),
-        # so this measures the violation instead of assuming it away.
-        "bool_negated": noul(
-            f"Is it true that this message is NOT about {topic}?"
+        # The negated twin, same request, derived mechanically from the
+        # positive string. The jaggedness page disclaims
+        # P(q) == 1 - P(not q), so this measures the violation instead of
+        # assuming it away.
+        "bool_negated": noul(negate(p["question"])),
+        # A third framing, semantically equivalent to the positive but
+        # worded differently. This separates two explanations for any
+        # asymmetry: if paraphrase disagreement is as large as negation
+        # disagreement, the model is sensitive to wording in general and
+        # the negation result is not specifically about negation.
+        "bool_paraphrase": noul(
+            f"Does this message concern {topic}?"
         ),
         # Choice -> jev_choice
         "choice": choice(
@@ -90,7 +117,33 @@ def questions_for(probe: str) -> dict:
             f"How directly is this message about {topic}?",
             RELEVANCE_RUBRIC,
         ),
+        # Score with the rubric REVERSED. Levels are scored independently
+        # and the model never sees level numbers, so ordinality is imposed
+        # entirely by our array order. If a reversed rubric does not mirror
+        # the score, the rubric is not ordinal and every sort key built
+        # from it is noise. One extra question in a request we are already
+        # paying for.
+        "score_reversed": score(
+            f"How directly is this message about {topic}?",
+            list(reversed(RELEVANCE_RUBRIC)),
+        ),
     }
+
+
+def question_set_hash() -> str:
+    """Fingerprint of every question this run will ask.
+
+    Cache keys include the questions, so editing a rubric or a probe
+    question silently invalidates the whole cache and triggers a full
+    re-spend. Stamping this into results.json makes that visible instead
+    of surprising, and marks which question set a number belongs to.
+    """
+    import hashlib
+
+    blob = json.dumps(
+        {p: questions_for(p) for p in PROBES}, sort_keys=True, ensure_ascii=False
+    )
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
 def load_corpus() -> list[dict]:
@@ -136,6 +189,7 @@ def analyze(rows, responses) -> dict:
     report: dict = {
         "n_corpus": len(rows),
         "n_scored": len(responses),
+        "question_set_hash": question_set_hash(),
         "score_scale": {
             "levels": len(RELEVANCE_RUBRIC),
             "range": [0, SCORE_SCALE_MAX],
@@ -157,14 +211,29 @@ def analyze(rows, responses) -> dict:
     y = np.array([row["label"] for row, _ in paired], float)
     ok = ~np.isnan(p_bool)
 
+    # Calibration is computed on confidently-labeled rows only. For the
+    # ambiguous near-miss groups the "no" is arguable, so a correct 0.6
+    # scored against a wrong False reads as miscalibration and could fail
+    # the gate on label error rather than model error. Ranking keeps every
+    # row: those hard cases are exactly where sort order matters, and
+    # ranking only needs the pairs the labels do order.
+    conf = ok & np.array([row.get("label_confident", True) for row, _ in paired])
+
     if ok.sum():
         report["boolean"] = {
             "n": int(ok.sum()),
-            "brier": M.brier(p_bool[ok], y[ok]),
-            "decomposition": M.brier_decomposition(p_bool[ok], y[ok]),
-            "ece": M.ece(p_bool[ok], y[ok], n_bins=10, adaptive=True),
-            "ece_fixed_bins": M.ece(p_bool[ok], y[ok], n_bins=10, adaptive=False)["ece"],
+            "n_calibration": int(conf.sum()),
+            "n_excluded_ambiguous": int(ok.sum() - conf.sum()),
+            "brier": M.brier(p_bool[conf], y[conf]),
+            "decomposition": M.brier_decomposition(p_bool[conf], y[conf]),
+            "ece": M.ece(p_bool[conf], y[conf], n_bins=10, adaptive=True),
+            "ece_fixed_bins": M.ece(p_bool[conf], y[conf], n_bins=10, adaptive=False)["ece"],
+            # Reported for comparison: if these diverge a lot, the exclusion
+            # is doing heavy lifting and should be stated prominently.
+            "ece_all_rows_incl_ambiguous": M.ece(p_bool[ok], y[ok], n_bins=10)["ece"],
             "ranking": M.rank_metrics(p_bool[ok], y[ok]),
+            "calibration_note": "Brier/ECE exclude near-miss groups whose "
+                                "negative label is arguable; ranking uses all rows.",
         }
 
         # Per-probe, because one bad probe can hide inside the average.
@@ -197,6 +266,31 @@ def analyze(rows, responses) -> dict:
     both = ok & ~np.isnan(p_neg)
     if both.sum():
         report["negation_invariant"] = M.negation_symmetry(p_bool[both], p_neg[both])
+
+    # Paraphrase control. A semantically equivalent rewording should give
+    # the same answer, so |P(q) - P(paraphrase)| is a floor for how much
+    # wording alone moves this model. If it is comparable to the negation
+    # violation, the negation result is general wording sensitivity rather
+    # than anything specific to negation, and must be reported as such.
+    p_par = np.array([ans(r, "bool_paraphrase").get("noul", np.nan) for _, r in paired])
+    par = ok & ~np.isnan(p_par)
+    if par.sum():
+        diff = np.abs(p_bool[par] - p_par[par])
+        report["paraphrase_control"] = {
+            "n": int(par.sum()),
+            "mean_abs_diff": float(diff.mean()),
+            "median_abs_diff": float(np.median(diff)),
+            "p95_abs_diff": float(np.percentile(diff, 95)),
+            "max_abs_diff": float(diff.max()),
+            "note": "floor for wording sensitivity; compare against "
+                    "negation_invariant.mean_abs_violation before attributing "
+                    "asymmetry to negation specifically",
+        }
+        neg_v = report.get("negation_invariant", {}).get("mean_abs_violation")
+        if neg_v is not None and diff.mean() > 0:
+            report["paraphrase_control"]["negation_to_paraphrase_ratio"] = float(
+                neg_v / diff.mean()
+            )
 
     # ---- Choice ----
     ch_rows = [(row, r) for row, r in paired if row.get("choice_label")]
@@ -248,6 +342,39 @@ def analyze(rows, responses) -> dict:
                 means["far"] < means["near_miss"] < means["positive"]
             )
 
+        # Rubric ordinality invariant. With the rubric reversed, a genuinely
+        # ordinal scale must mirror: score_rev ~= SCALE_MAX - score. This is
+        # the check that the array order we impose corresponds to something
+        # the model actually perceives as ordered. Needs no ground truth.
+        sc_rev = np.array(
+            [ans(r, "score_reversed").get("score", np.nan) for _, r in paired]
+        )
+        mr = m & ~np.isnan(sc_rev)
+        if mr.sum():
+            mirrored = SCORE_SCALE_MAX - sc_rev[mr]
+            resid = np.abs(sc[mr] - mirrored)
+            report["score"]["rubric_ordinality"] = {
+                "n": int(mr.sum()),
+                "mean_abs_mirror_error": float(resid.mean()),
+                "median_abs_mirror_error": float(np.median(resid)),
+                "p95_abs_mirror_error": float(np.percentile(resid, 95)),
+                # As a fraction of the full scale, so it is readable
+                # independently of how many levels the rubric has.
+                "mean_error_as_scale_fraction": float(
+                    resid.mean() / SCORE_SCALE_MAX
+                ),
+                "correlation_with_mirror": (
+                    float(np.corrcoef(sc[mr], mirrored)[0, 1])
+                    if len(np.unique(sc[mr])) > 1
+                    and len(np.unique(mirrored)) > 1
+                    else float("nan")
+                ),
+                "note": "reversed rubric should mirror: "
+                        "score_reversed ~= scale_max - score. Large error "
+                        "means the rubric is not ordinal to the model and "
+                        "any sort key built from it is noise.",
+            }
+
     # ---- gate ----
     gate = M.Gate()
     b = report.get("boolean", {})
@@ -256,6 +383,12 @@ def analyze(rows, responses) -> dict:
         inversion=b.get("ranking", {}).get("inversion_rate"),
         resolution=b.get("decomposition", {}).get("resolution"),
         negation=report.get("negation_invariant", {}).get("mean_abs_violation"),
+        # Gated separately: jev_score_val is what ORDER BY sorts on, so a
+        # Score that inverts pairs must stop Phase 2 on its own merits.
+        score_inversion=report.get("score", {})
+        .get("ranking_vs_label", {})
+        .get("inversion_rate"),
+        choice_ece=report.get("choice", {}).get("ece_on_confidence", {}).get("ece"),
     )
     report["gate"] = {
         "passed": gate.passed,

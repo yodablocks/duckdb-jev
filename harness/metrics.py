@@ -260,11 +260,19 @@ class Gate:
     vendor's 67.8% agreement figure is self-run and unreproduced, and
     agreement with averaged frontier judgments is not calibration.
 
+    The spec asks for the three primitives to be reported separately
+    because they may calibrate differently. They must therefore be *gated*
+    separately too. Gating only jev_bool would let a Score that inverts a
+    third of its pairs through, and `jev_score_val` is the accessor ORDER
+    BY actually sorts on: it is the single most product-critical number
+    here, so it gets its own condition rather than riding on the Boolean.
+
     Rationale for each:
       ece <= 0.10        A stated 0.8 that is really 0.7 is tolerable for
                          ranking; wider and the probability is decorative.
       inversion <= 0.15  Above roughly one bad pair in six, a sorted page
-                         of results looks visibly wrong to a user.
+                         of results looks visibly wrong to a user. Applied
+                         to Boolean and Score independently.
       resolution > 0     Anything at or below zero means the model is not
                          separating the classes at all.
       negation <= 0.15   Beyond this, phrasing moves the answer as much as
@@ -277,22 +285,41 @@ class Gate:
     max_negation_violation: float = 0.15
     failures: list[str] = field(default_factory=list)
 
-    def check(self, *, ece_val=None, inversion=None, resolution=None, negation=None):
+    def check(
+        self,
+        *,
+        ece_val=None,
+        inversion=None,
+        resolution=None,
+        negation=None,
+        score_inversion=None,
+        choice_ece=None,
+    ):
         self.failures = []
         if ece_val is not None and ece_val > self.max_ece:
-            self.failures.append(f"ECE {ece_val:.3f} > {self.max_ece}")
+            self.failures.append(f"jev_bool ECE {ece_val:.3f} > {self.max_ece}")
         if inversion is not None and inversion > self.max_inversion_rate:
             self.failures.append(
-                f"inversion rate {inversion:.3f} > {self.max_inversion_rate}"
+                f"jev_bool inversion rate {inversion:.3f} > {self.max_inversion_rate}"
             )
         if resolution is not None and resolution <= self.min_resolution:
             self.failures.append(
-                f"resolution {resolution:.4f} <= {self.min_resolution} "
+                f"jev_bool resolution {resolution:.4f} <= {self.min_resolution} "
                 "(model is not separating classes)"
             )
         if negation is not None and negation > self.max_negation_violation:
             self.failures.append(
                 f"negation asymmetry {negation:.3f} > {self.max_negation_violation}"
+            )
+        # The sort key for jev_score_val / semantic ORDER BY.
+        if score_inversion is not None and score_inversion > self.max_inversion_rate:
+            self.failures.append(
+                f"jev_score inversion rate {score_inversion:.3f} > "
+                f"{self.max_inversion_rate} (this is the ORDER BY sort key)"
+            )
+        if choice_ece is not None and choice_ece > self.max_ece:
+            self.failures.append(
+                f"jev_choice confidence ECE {choice_ece:.3f} > {self.max_ece}"
             )
         return not self.failures
 

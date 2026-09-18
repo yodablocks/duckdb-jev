@@ -74,6 +74,22 @@ CHOICE_GROUPS = {
 }
 
 
+# Near-miss groups whose "no" label is genuinely unsafe. A
+# talk.politics.misc post about healthcare reform really is about health;
+# a rec.autos post selling a part really is offering an item for sale. The
+# author picking a different newsgroup does not entail "not about X".
+#
+# These rows stay in the corpus (they are the hard ranking cases) but are
+# flagged so the analysis can exclude them from ECE, where a correct 0.6
+# scored against a wrong False reads as miscalibration and can fail the
+# gate on label error alone.
+AMBIGUOUS_NEGATIVES = {
+    ("forsale", "rec.autos"),
+    ("forsale", "comp.sys.mac.hardware"),
+    ("medical", "talk.politics.misc"),
+}
+
+
 @dataclass
 class Row:
     row_id: str
@@ -83,13 +99,45 @@ class Row:
     label: bool          # ground truth from the human-assigned newsgroup
     stratum: str         # positive | near_miss | far
     choice_label: str | None
+    label_confident: bool = True   # False = "no" is arguable, exclude from ECE
 
 
 def _clean(raw: str) -> str:
-    """Strip quoted replies and signatures, mirroring sklearn's remove=()."""
-    lines = [ln for ln in raw.splitlines() if not ln.strip().startswith((">", "|"))]
+    """Strip headers, quoted replies and signatures.
+
+    Equivalent to sklearn's remove=('headers','footers','quotes'), and it
+    matters more than it looks. A leftover `Newsgroups:` or `Subject:`
+    header hands the model the answer directly, and an `Organization:
+    Memorial Sloan-Kettering Cancer Center` line makes an unrelated post
+    look medical. Either way we would be measuring header parsing rather
+    than semantic judgment.
+    """
+    # RFC822 headers run until the first blank line.
+    parts = raw.split("\n\n", 1)
+    body = parts[1] if len(parts) > 1 else raw
+
+    # Any stragglers that survived, plus attribution lines.
+    lines = []
+    for ln in body.splitlines():
+        s = ln.strip()
+        if s.startswith((">", "|")):
+            continue
+        if re.match(r"^[A-Za-z-]{2,20}:\s", ln) and re.match(
+            r"^(From|Subject|Organization|Lines|NNTP-Posting-Host|Reply-To|"
+            r"Distribution|Newsgroups|X-[\w-]+|In-article|Keywords|Summary|"
+            r"Nntp-Posting-Host|Article-I\.D|References|Sender|Followup-To|"
+            r"Expires|Originator|Date|Message-ID|Path|Xref)\b",
+            ln, re.I,
+        ):
+            continue
+        if re.match(r"^In article <.*>.*writes:\s*$", s):
+            continue
+        if re.match(r"^.{0,80}\bwrites:\s*$", s) and "@" in s:
+            continue
+        lines.append(ln)
+
     text = "\n".join(lines)
-    text = re.split(r"^-- $", text, flags=re.MULTILINE)[0]
+    text = re.split(r"^-- ?$", text, flags=re.MULTILINE)[0]
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
@@ -150,7 +198,14 @@ def build(n_per_probe: int = 120, seed: int = 20260918) -> list[Row]:
                         newsgroup=group,
                         label=(stratum == "positive"),
                         stratum=stratum,
-                        choice_label=CHOICE_GROUPS.get(group),
+                        # Groups outside CHOICE_GROUPS map to "other" rather
+                        # than None. Dropping them would mean no scored row
+                        # ever exercises the no-match path, and the whole
+                        # point of offering "other" is that the model can
+                        # decline instead of being forced into a wrong bucket.
+                        choice_label=CHOICE_GROUPS.get(group, "other"),
+                        label_confident=(probe_name, group)
+                        not in AMBIGUOUS_NEGATIVES,
                     )
                 )
 

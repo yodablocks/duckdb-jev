@@ -45,8 +45,15 @@ because they need **no ground-truth labels at all**:
 | Invariant | What it catches |
 |---|---|
 | Negation symmetry: `P(q)` vs `1 - P(not q)` | Probabilities that move with phrasing rather than evidence. The `jev-1.13` jaggedness page explicitly disclaims this identity, which is what makes it worth measuring. |
-| Score rubric ordinality | Levels are scored independently and the model never sees level numbers, so ordinality is imposed by *our* array order. A non-ordinal rubric yields a garbage sort key. |
-| Choice option-order invariance | Position effects in the option list. |
+| Paraphrase control: `P(q)` vs `P(reworded q)` | The confound in the line above. A semantically equivalent rewording *should* agree, so this is the floor for general wording sensitivity. If it is as large as the negation violation, the asymmetry is not about negation at all, and the headline invariant has to be reported that way. |
+| Score rubric ordinality: reversed rubric should mirror | Levels are scored independently and the model never sees level numbers, so ordinality is imposed entirely by *our* array order. If `score_reversed != scale_max - score`, the rubric is not ordinal to the model and every sort key built from it is noise. |
+
+The negation question is derived **mechanically** from the positive one
+rather than hand-written, so that a large measured asymmetry cannot be
+explained away by the two strings not having been true complements.
+
+All three ride along in a request already being paid for: one row costs
+one request carrying six questions, not six requests.
 
 Because these compare the model against itself, they are immune to the
 label-provenance problem below. They are necessary, not sufficient:
@@ -81,6 +88,34 @@ positives, topically adjacent **near misses**, and plainly unrelated
 negatives, weighted toward the near misses. Default corpus is 360 rows
 across 3 probes, inside the spec's 300-500 band.
 
+### The near-miss labels are not all sound, and that is handled explicitly
+
+The positive labels are safe: the author chose `sci.med`, so "is this
+about medicine" is yes. **The negative labels are weaker.** A
+`talk.politics.misc` post about healthcare reform genuinely *is* about
+health; a `rec.autos` post selling a part genuinely *is* offering an item
+for sale. The author picking a different newsgroup does not entail "not
+about X."
+
+This is sharper than generic label noise, because the sampler
+deliberately concentrates the least reliable labels in the largest
+stratum *and* in the mid-probability region where ECE is decided. A
+correct 0.6 scored against a wrong `False` reads as miscalibration and
+could fail a 0.10 gate on label error alone.
+
+So the groups where the negative is genuinely arguable are listed in
+`AMBIGUOUS_NEGATIVES` and flagged `label_confident=False` (75 of 360
+rows). They are **excluded from Brier/ECE** and **kept for ranking**,
+because ranking only needs the pairs the labels do order, and those hard
+rows are exactly where sort order matters. `results.json` reports
+`ece_all_rows_incl_ambiguous` alongside, so it is visible how much work
+the exclusion is doing.
+
+Document headers are stripped before scoring. A leftover `Newsgroups:` or
+`Subject:` line hands the model the answer, and an `Organization: Memorial
+Sloan-Kettering Cancer Center` line makes an unrelated post look medical:
+either way the run would be measuring header parsing, not judgment.
+
 The vendor's self-reported 67.8% agreement against averaged frontier
 judgments is not used as a baseline anywhere here. Agreement with other
 models is not calibration.
@@ -89,11 +124,18 @@ models is not calibration.
 
 Thresholds were fixed **before** any results were seen.
 
+The spec asks for the three primitives to be *reported* separately because
+they may calibrate differently. They are therefore *gated* separately too:
+gating only `jev_bool` would let a Score that inverts a third of its pairs
+through, and `jev_score_val` is the accessor `ORDER BY` actually sorts on.
+
 | Condition | Threshold | Rationale |
 |---|---|---|
-| ECE | ≤ 0.10 | A stated 0.8 that is really 0.7 is tolerable for ranking; wider and the probability is decorative. |
-| Inversion rate | ≤ 0.15 | Past roughly one bad pair in six, a sorted page looks visibly wrong. |
-| Resolution | > 0 | At or below zero, the model is not separating classes at all. A model predicting the base rate every time scores a respectable Brier and is useless for `ORDER BY`. |
+| `jev_bool` ECE | ≤ 0.10 | A stated 0.8 that is really 0.7 is tolerable for ranking; wider and the probability is decorative. |
+| `jev_bool` inversion rate | ≤ 0.15 | Past roughly one bad pair in six, a sorted page looks visibly wrong. |
+| `jev_bool` resolution | > 0 | At or below zero, the model is not separating classes at all. A model predicting the base rate every time scores a respectable Brier and is useless for `ORDER BY`. |
+| **`jev_score` inversion rate** | ≤ 0.15 | The direct measure of whether semantic `ORDER BY` works. Gated on its own merits. |
+| `jev_choice` confidence ECE | ≤ 0.10 | Does stated confidence predict whether the pick was right? |
 | Negation asymmetry | ≤ 0.15 | Beyond this, phrasing moves the answer as much as evidence does. |
 
 ## Running it
@@ -187,7 +229,11 @@ Score returns a probability-weighted mean over level **indices**, so an
   Wilson intervals and adaptive (equal-mass) binning is the default; read
   the intervals, not the third decimal.
 - **20 Newsgroups labels are themselves noisy** (cross-posting, imperfect
-  group choice), which inflates apparent miscalibration.
+  group choice), which inflates apparent miscalibration. The worst cases
+  are held out of ECE (see above), but the remaining negatives are still
+  "the author posted elsewhere", not "a human judged this not-about-X".
+- **Invariants bound wording sensitivity, not correctness.** A model can
+  be perfectly self-consistent and consistently wrong.
 - **`jev-latest` is a moving target.** The `model` field from each
   response is recorded; these numbers attach to one version.
 
