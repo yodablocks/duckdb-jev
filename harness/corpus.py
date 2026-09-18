@@ -7,7 +7,8 @@ Why this corpus, in the order the constraints mattered:
    behaviour, not against a Claude-generated answer key. Self-labeling
    would measure Jev's agreement with Claude and produce an authoritative
    looking number worth nothing.
-2. Licensed for research use and redistributable.
+2. Freely redistributed for research. Note it carries no explicit
+   license; see the Corpus licensing section of the README.
 3. Single-factor labels. "Is this about X" is one judgment, matching the
    build spec's rule that questions must be single-factor.
 4. Clear of Jev's documented failure modes. The jaggedness page for
