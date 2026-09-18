@@ -228,7 +228,14 @@ def analyze(rows, responses) -> dict:
     }
 
     by_id = {r["row_id"]: r for r in rows}
-    paired = [(by_id[rid], responses[rid]) for rid in responses if rid in by_id]
+    # Canonical order. A live run inserts responses in thread-completion
+    # order, --analyze-only in corpus order; the adaptive binning splits
+    # tied probabilities by input position, so without this the bin
+    # tables differ between the two over identical data.
+    paired = sorted(
+        ((by_id[rid], responses[rid]) for rid in responses if rid in by_id),
+        key=lambda pr: pr[0]["row_id"],
+    )
     if not paired:
         return report
 

@@ -90,7 +90,13 @@ def ece(probs, labels, n_bins: int = 10, adaptive: bool = True) -> dict:
         return {"ece": float("nan"), "mce": float("nan"), "bins": [], "n": 0}
 
     if adaptive:
-        order = np.argsort(p)
+        # Stable sort: Jev returns two-decimal probabilities, so ties are
+        # common and a tie group often straddles a bin boundary. With an
+        # unstable sort, which side of the boundary a tied row lands on
+        # depends on input order, and bin-level numbers (observed rate,
+        # gap, Wilson interval, MCE) change between runs over identical
+        # data. The caller supplies rows in a canonical order.
+        order = np.argsort(p, kind="stable")
         splits = np.array_split(order, min(n_bins, n))
     else:
         edges = np.linspace(0, 1, n_bins + 1)
