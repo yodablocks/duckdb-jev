@@ -39,8 +39,8 @@ from client import (
 from corpus import PROBES
 import metrics as M
 
-# Anchored on the git root, not a hardcoded depth: this project moves
-# from taiwan-ideas/tools/duckdb-jev/ to its own repo, and a fixed depth
+# Anchored on the git root, not a hardcoded depth: this project moved
+# from a subdirectory of a larger repo to its own, and a fixed depth
 # put .data/ in the user's home directory after the move.
 DATA = repo_root() / ".data" / "jev-calibration"
 CORPUS = DATA / "corpus.jsonl"

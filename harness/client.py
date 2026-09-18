@@ -48,9 +48,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def repo_root() -> Path:
     """Locate the enclosing git repository root.
 
-    Do NOT hardcode a parent depth. This project is designed to graduate
-    from `taiwan-ideas/tools/duckdb-jev/` into its own repo, which changes
-    the nesting depth. A hardcoded parents[3] silently resolved `.data/`
+    Do NOT hardcode a parent depth. This project started as a
+    subdirectory of a larger repo and graduated into its own, which
+    changed the nesting depth. A hardcoded parents[3] silently resolved `.data/`
     to the user's HOME directory after that move: outside the repo, so
     the cache and corpus landed somewhere the .gitignore did not cover.
     """
