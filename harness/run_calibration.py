@@ -228,7 +228,14 @@ def analyze(rows, responses) -> dict:
     }
 
     by_id = {r["row_id"]: r for r in rows}
-    paired = [(by_id[rid], responses[rid]) for rid in responses if rid in by_id]
+    # Canonical order. A live run inserts responses in thread-completion
+    # order, --analyze-only in corpus order; the adaptive binning splits
+    # tied probabilities by input position, so without this the bin
+    # tables differ between the two over identical data.
+    paired = sorted(
+        ((by_id[rid], responses[rid]) for rid in responses if rid in by_id),
+        key=lambda pr: pr[0]["row_id"],
+    )
     if not paired:
         return report
 
@@ -511,8 +518,8 @@ def reliability_diagram(report, path: Path):
     )
     x = [b["mean_pred"] for b in bins]
     obs = [b["observed"] for b in bins]
-    lo = [o - b["ci_low"] for o, b in zip(obs, bins)]
-    hi = [b["ci_high"] - o for o, b in zip(obs, bins)]
+    lo = [max(0.0, o - b["ci_low"]) for o, b in zip(obs, bins)]
+    hi = [max(0.0, b["ci_high"] - o) for o, b in zip(obs, bins)]
 
     ax.plot([0, 1], [0, 1], "--", color="#999", lw=1, label="perfect calibration")
     ax.errorbar(x, obs, yerr=[lo, hi], fmt="o-", color="#2b6cb0",
@@ -537,6 +544,33 @@ def reliability_diagram(report, path: Path):
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path
+
+
+def carry_forward_usage(new_usage: dict, prior: dict | None, analyze_only: bool) -> dict:
+    """Keep the cost record of the run that produced the cached responses.
+
+    A re-analysis spends nothing, so its own usage block is all zeros. If
+    that overwrote results.json, the only record of what the numbers cost
+    (the README quotes it) would be gone after the first --analyze-only.
+    The prior block is carried forward and marked, so the file still says
+    what the paid run cost and that this copy was recomputed from cache.
+    """
+    if not analyze_only:
+        return new_usage
+    prior_usage = (prior or {}).get("usage") or {}
+    if not prior_usage.get("requests"):
+        return new_usage
+    return dict(prior_usage, reanalyzed_from_cache=True)
+
+
+def _read_results() -> dict | None:
+    path = RESULTS / "results.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
 
 
 def _guard_results(new: dict) -> None:
@@ -630,13 +664,17 @@ def main():
         return
 
     report = analyze(rows, responses)
-    report["usage"] = {
-        "requests": u.requests,
-        "cache_hits": u.cache_hits,
-        "input_tokens": u.input_tokens,
-        "output_tokens": u.output_tokens,
-        "failed_rows": len(errors),
-    }
+    report["usage"] = carry_forward_usage(
+        {
+            "requests": u.requests,
+            "cache_hits": u.cache_hits,
+            "input_tokens": u.input_tokens,
+            "output_tokens": u.output_tokens,
+            "failed_rows": len(errors),
+        },
+        _read_results(),
+        args.analyze_only,
+    )
 
     _guard_results(report)
     RESULTS.mkdir(parents=True, exist_ok=True)
