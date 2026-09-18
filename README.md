@@ -6,9 +6,23 @@ columns can be filtered and sorted like numeric ones.
 **Status (2026-09-18): Phase 1 complete. `jev-1.13.0` passes all six gate
 conditions. Phase 2 is unblocked.** See [Results](#results).
 
-Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row). These are,
-as far as we know, the first independent calibration numbers published
-for Jev.
+Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row).
+
+Jev launched 2026-09-15 and the only figure its vendor publishes is 67.8%
+agreement against averaged frontier judgments, self-run and unreproduced.
+Agreement with other models is not calibration, so these are independent
+numbers rather than a reproduction of that one. Every method choice is in
+the repo and the run is reproducible, so disagree with the numbers by
+re-running rather than by taking anyone's word for it, including mine.
+
+**Reproduce:** `python3 harness/run_calibration.py` with a key. Responses
+are cached, so re-analysis is free and `--analyze-only` costs nothing.
+
+## License
+
+Code: MIT (see `LICENSE`). This covers the harness only, **not** the
+corpus (see [Corpus licensing](#corpus-licensing)) and not Jev's outputs,
+which are governed by TypeSafe AI's terms.
 
 ## Results
 
@@ -130,7 +144,9 @@ calibration, producing an authoritative-looking number worth nothing.
 
 Selection constraints, in the order they bound the result:
 
-1. Human-labeled by provenance, licensed for research use.
+1. Human-labeled by provenance, and freely redistributed for research
+   (see [Corpus licensing](#corpus-licensing) for what that does and does
+   not mean).
 2. Single-factor labels, matching the spec's rule for questions.
 3. Clear of Jev's documented weak spots. The jaggedness page for
    `jev-1.13` names math/counting, date comparison, and hex/RGB numeric
@@ -185,6 +201,32 @@ The vendor's self-reported 67.8% agreement against averaged frontier
 judgments is not used as a baseline anywhere here. Agreement with other
 models is not calibration.
 
+### Corpus licensing
+
+**20 Newsgroups carries no explicit license.** Neither the original
+distribution page nor scikit-learn's documentation states one. It has
+been redistributed for research since the 1990s and ships inside
+scikit-learn, so research use is well established by convention, but
+"conventionally redistributed" is not the same as "licensed", and this
+README previously said "licensed for research use", which overstated
+what can be verified. Corrected here rather than quietly.
+
+Practical consequences:
+
+- **No corpus text is committed to this repo.** Only aggregate metrics
+  are (`results/results.json`). The corpus and the raw response cache are
+  gitignored build artifacts you regenerate locally.
+- The documents are public Usenet posts from the 1990s written by
+  identifiable people. If you republish any of it, that is your call to
+  make, not one this repo makes for you.
+- **Content warning:** the corpus includes `talk.politics.*` and
+  `talk.religion.*` posts, and scikit-learn explicitly warns that it
+  "contains data which may be inappropriate for certain NLP
+  applications" and that inflammatory or culturally biased text will
+  propagate biases. The probe questions here are about topic membership,
+  which does not surface that content in the metrics, but you will see it
+  if you read the raw rows.
+
 ## Gate
 
 Thresholds were fixed **before** any results were seen.
@@ -229,7 +271,7 @@ you set deliberately.
 key on disk.
 
 ```sh
-# one-time corpus download (~14MB, human-labeled, research licence)
+# one-time corpus download (~14MB, human-labeled; see Corpus licensing)
 mkdir -p ~/scikit_learn_data/20news_home
 curl -L -A "Mozilla/5.0" -o /tmp/20news.tar.gz \
   http://qwone.com/~jason/20Newsgroups/20news-bydate.tar.gz
