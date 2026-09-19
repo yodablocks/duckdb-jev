@@ -60,8 +60,8 @@ which are governed by TypeSafe AI's terms.
 | | inversion rate | **0.0363** | ≤ 0.15 ✓ |
 | `jev_choice` | accuracy | 0.8754 | |
 | | confidence ECE | 0.0769 | ≤ 0.10 ✓ |
-| `jev_score` | ordinal inversion | **0.1433** | ≤ 0.15 ✓ |
-| | binary inversion | 0.0370 | |
+| `jev_score` | on-topic vs off-topic inversion | **0.0370** | |
+| | 3-stratum inversion | 0.1433 | ≤ 0.15 ✓ (but see below) |
 | Invariant | negation \|P(q)+P(¬q)−1\| | 0.0161 | ≤ 0.15 ✓ |
 | | rubric mirror error | 0.0223 (0.74% of scale) | |
 
@@ -154,6 +154,47 @@ label-provenance problem below. They are necessary, not sufficient:
 passing negation symmetry does not imply calibration, but failing it means
 the probabilities cannot be thresholded reliably, which kills
 `WHERE prob > x` independently of calibration.
+
+### What the Score gate does not show
+
+`jev_score` is the sort key for semantic `ORDER BY`, so its gate
+condition deserves scrutiny. Decomposing the gated 0.1433 by which pair
+of strata each comparison came from:
+
+| Stratum pair | Pairs | Inversion | Share of the 0.1433 |
+|---|---|---|---|
+| positive × far | 10,947 | 0.0273 | 5% |
+| positive × near_miss | 17,343 | 0.0431 | 13% |
+| **near_miss × far** | 12,549 | **0.3829** | **82%** |
+
+**82% of the gated figure comes from one stratum pair that the model
+treats as a single category**, and near-chance (0.38) is what you would
+expect there: `far` has median score 0.00 and `near_miss` has median
+0.01. Both are "not about this topic", and the distinction between them
+is an artifact of how the corpus was *sampled*, not a relevance
+difference a user would care about. Ranking two irrelevant documents
+against each other is not a task `ORDER BY` needs to do well.
+
+Collapsing those two into a single off-topic class gives an inversion
+rate of **0.0370** over 28,290 pairs. That is the honest statement of
+what was demonstrated: **Score separates on-topic from off-topic very
+reliably.**
+
+**What is not demonstrated: ordering *within* the on-topic set.** That is
+the part `ORDER BY` actually exploits, and it is untested here, because
+20 Newsgroups has no graded relevance labels among on-topic documents.
+Of 123 positive rows, 54 score exactly 3.00, and there is no ground truth
+saying which of those is *more* on-topic than another.
+
+An earlier draft of this README claimed the 3-level stratum target "can
+detect mis-ordering within the positives." It cannot: the third level was
+added among the *negatives*, so the extra resolution went to the end of
+the scale where the model makes no distinction. Corrected here rather
+than quietly.
+
+Testing within-range ordering needs a corpus with human-assigned ordinal
+grades that populate several levels of *relevant*, such as author-given
+star ratings. That is the next measurement, and it is not yet done.
 
 ## Label provenance
 
@@ -264,7 +305,7 @@ through, and `jev_score_val` is the accessor `ORDER BY` actually sorts on.
 | `jev_bool` ECE | ≤ 0.10 | A stated 0.8 that is really 0.7 is tolerable for ranking; wider and the probability is decorative. |
 | `jev_bool` inversion rate | ≤ 0.15 | Past roughly one bad pair in six, a sorted page looks visibly wrong. |
 | `jev_bool` resolution | > 0 | At or below zero, the model is not separating classes at all. A model predicting the base rate every time scores a respectable Brier and is useless for `ORDER BY`. |
-| **`jev_score` inversion rate** | ≤ 0.15 | Graded ranking, scored against the 3-level ordinal stratum rather than the binary label, so it can detect mis-ordering *within* the positives. A necessary condition for semantic `ORDER BY`, gated on its own merits. |
+| **`jev_score` inversion rate** | ≤ 0.15 | Scored against the 3-level sampling stratum. **This condition is weaker than it looks: see [What the Score gate does not show](#what-the-score-gate-does-not-show).** |
 | `jev_choice` confidence ECE | ≤ 0.10 | Does stated confidence predict whether the pick was right? |
 | Negation asymmetry | ≤ 0.15 | Beyond this, phrasing moves the answer as much as evidence does. |
 
@@ -423,10 +464,9 @@ Score returns a probability-weighted mean over level **indices**, so an
   "the author posted elsewhere", not "a human judged this not-about-X".
 - **Invariants bound wording sensitivity, not correctness.** A model can
   be perfectly self-consistent and consistently wrong.
-- **Graded ranking is proxied, not measured directly.** The ordinal target
-  is the 3-level sampling stratum, not a human-assigned relevance grade.
-  It detects gross mis-ordering within the positives; it cannot certify
-  fine-grained rank quality.
+- **Within-positive ordering is untested.** See below: the corpus has no
+  graded relevance labels among on-topic documents, so nothing here shows
+  whether Score ranks *degrees* of relevance correctly.
 - **`jev-latest` is a moving target.** The `model` field from each
   response is recorded; these numbers attach to one version.
 

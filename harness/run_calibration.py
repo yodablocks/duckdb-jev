@@ -422,6 +422,28 @@ def analyze(rows, responses) -> dict:
             "ranking_vs_label_all_rows": M.rank_metrics(sc[m], y[m]),
             # Graded ranking over 3 ordinal levels rather than 2.
             "ranking_vs_ordinal_stratum": M.rank_metrics(sc[mc], strat_rank[mc]),
+            # Decomposed by stratum pair, because the aggregate hides
+            # which comparisons it is made of. On this corpus 82% of the
+            # 3-stratum figure comes from near_miss x far, a pair the
+            # model treats as one category (both medians ~0.00) and that
+            # ORDER BY has no reason to rank. Reported so the weakness is
+            # visible in the artifact, not only in prose.
+            "ranking_by_stratum_pair": {
+                f"{lo}_vs_{hi}": M.pairwise_inversions(
+                    sc[mc & np.isin(strat_rank, [i, j])],
+                    strat_rank[mc & np.isin(strat_rank, [i, j])],
+                )
+                for (i, lo), (j, hi) in (
+                    ((2, "positive"), (0, "far")),
+                    ((2, "positive"), (1, "near_miss")),
+                    ((1, "near_miss"), (0, "far")),
+                )
+            },
+            # The honest headline: the two negative strata collapsed into
+            # one off-topic class, which is the distinction ORDER BY needs.
+            "ranking_on_vs_off_topic": M.pairwise_inversions(
+                sc[mc], (strat_rank[mc] == 2).astype(float)
+            ),
             "note": "Brier/ECE omitted: they are classification metrics and "
                     "do not apply to a continuous score. ranking_vs_label is "
                     "binary so it cannot detect mis-ordering within the "

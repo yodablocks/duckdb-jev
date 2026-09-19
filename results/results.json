@@ -412,6 +412,28 @@
       "comparable_pairs": 40839,
       "tied_pairs": 4258
     },
+    "ranking_by_stratum_pair": {
+      "positive_vs_far": {
+        "inversion_rate": 0.027267744587558235,
+        "comparable_pairs": 10947,
+        "tied_pairs": 175
+      },
+      "positive_vs_near_miss": {
+        "inversion_rate": 0.04312979300005766,
+        "comparable_pairs": 17343,
+        "tied_pairs": 216
+      },
+      "near_miss_vs_far": {
+        "inversion_rate": 0.38293887959199935,
+        "comparable_pairs": 12549,
+        "tied_pairs": 3867
+      }
+    },
+    "ranking_on_vs_off_topic": {
+      "inversion_rate": 0.03699186991869919,
+      "comparable_pairs": 28290,
+      "tied_pairs": 391
+    },
     "note": "Brier/ECE omitted: they are classification metrics and do not apply to a continuous score. ranking_vs_label is binary so it cannot detect mis-ordering within the positives; see ranking_vs_ordinal_stratum for graded ordering.",
     "stratum_means": {
       "far": 0.07477777777777778,
